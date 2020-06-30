@@ -1,0 +1,9 @@
+[package]
+name = "popol"
+version = "0.1.0"
+authors = ["Alexis Sellier <self@cloudhead.io>"]
+edition = "2018"
+
+[dependencies]
+libc = "0.2.71"
+bitflags = "1.2"
