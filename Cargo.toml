@@ -6,4 +6,3 @@ edition = "2018"
 
 [dependencies]
 libc = "0.2.71"
-bitflags = "1.2"

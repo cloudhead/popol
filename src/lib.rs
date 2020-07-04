@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::io;
 use std::io::prelude::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
@@ -9,28 +8,31 @@ use std::time;
 #[allow(non_camel_case_types)]
 type nfds_t = libc::c_ulong;
 
-bitflags::bitflags! {
-    pub struct Events: libc::c_short {
-        /// The associated file is available for read operations.
-        const POLLIN = libc::POLLIN;
-        /// There is urgent data available for read operations.
-        const POLLPRI  = libc::POLLPRI;
-        /// The associated file is available for write operations.
-        const POLLOUT = libc::POLLOUT;
-        /// Error condition happened on the associated file descriptor.
-        /// `poll` will always wait for this event; it is not necessary to set it.
-        const POLLERR = libc::POLLERR;
-        /// Hang up happened on the associated file descriptor.
-        /// `poll` will always wait for this event; it is not necessary to set it.
-        const POLLHUP = libc::POLLHUP;
-        /// The associated file is invalid.
-        /// `poll` will always wait for this event; it is not necessary to set it.
-        const POLLNVAL = libc::POLLNVAL;
-        /// The associated file is ready to be read.
-        const READ = libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLPRI;
-        /// The associated file is ready to be written.
-        const WRITE = libc::POLLOUT | libc::POLLERR;
-    }
+pub use events::Events;
+
+pub mod events {
+    /// Events that can be waited for.
+    pub type Events = libc::c_short;
+
+    /// The associated file is available for read operations.
+    pub const POLLIN: Events = libc::POLLIN;
+    /// There is urgent data available for read operations.
+    pub const POLLPRI: Events = libc::POLLPRI;
+    /// The associated file is available for write operations.
+    pub const POLLOUT: Events = libc::POLLOUT;
+    /// Error condition happened on the associated file descriptor.
+    /// `poll` will always wait for this event; it is not necessary to set it.
+    pub const POLLERR: Events = libc::POLLERR;
+    /// Hang up happened on the associated file descriptor.
+    /// `poll` will always wait for this event; it is not necessary to set it.
+    pub const POLLHUP: Events = libc::POLLHUP;
+    /// The associated file is invalid.
+    /// `poll` will always wait for this event; it is not necessary to set it.
+    pub const POLLNVAL: Events = libc::POLLNVAL;
+    /// The associated file is ready to be read.
+    pub const READ: Events = libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLPRI;
+    /// The associated file is ready to be written.
+    pub const WRITE: Events = libc::POLLOUT | libc::POLLERR;
 }
 
 #[derive(Debug)]
@@ -52,48 +54,28 @@ impl<'a> Event<'a> {
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Descriptor {
     fd: RawFd,
-    events: libc::c_short,
-    revents: libc::c_short,
+    events: Events,
+    revents: Events,
 }
 
 impl Descriptor {
     pub fn new(fd: RawFd, events: Events) -> Self {
         Self {
             fd,
-            events: events.bits(),
+            events,
             revents: 0,
         }
     }
 
-    pub fn revents(&self) -> Events {
-        Events::from_bits_truncate(self.revents)
-    }
-
     pub fn set(&mut self, events: Events) {
-        self.events = events.bits();
+        self.events = events;
     }
 
     pub fn unset(&mut self, events: Events) {
-        self.events = self.events & !events.bits();
-    }
-}
-
-impl fmt::Debug for Descriptor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let fd = self.fd;
-
-        f.debug_struct("Descriptor")
-            .field("events", unsafe {
-                &Events::from_bits_unchecked(self.events)
-            })
-            .field("revents", unsafe {
-                &Events::from_bits_unchecked(self.revents)
-            })
-            .field("fd", &fd)
-            .finish()
+        self.events = self.events & !events;
     }
 }
 
@@ -126,7 +108,7 @@ impl<K: Eq + Copy + Clone> Descriptors<K> {
         writer.set_nonblocking(true)?;
 
         self.wakers.insert(self.list.len(), reader);
-        self.insert(key, Descriptor::new(fd, Events::READ));
+        self.insert(key, Descriptor::new(fd, events::READ));
 
         Ok(Waker { writer })
     }
@@ -140,7 +122,7 @@ impl<K: Eq + Copy + Clone> Descriptors<K> {
 
     pub fn set(&mut self, key: K, events: Events) -> bool {
         if let Some(ix) = self.index.iter().position(|k| k == &key) {
-            self.list[ix].events = events.bits();
+            self.list[ix].events = events;
             return true;
         }
         false
@@ -209,13 +191,13 @@ pub fn wait<'a, K: Eq + Clone + Copy>(
                 .iter()
                 .zip(fds.list.iter_mut())
                 .enumerate()
-                .filter(|(_, (_, d))| !d.revents().is_empty())
+                .filter(|(_, (_, d))| d.revents != 0)
                 .map(move |(i, (key, descriptor))| {
-                    let revents = descriptor.revents();
+                    let revents = descriptor.revents;
 
                     if let Some(reader) = wakers.get_mut(&i) {
-                        assert!(revents.intersects(Events::READ));
-                        assert!(!revents.contains(Events::POLLOUT));
+                        assert!(revents & events::READ != 0);
+                        assert!(revents & events::POLLOUT == 0);
 
                         Waker::snooze(reader).unwrap();
                     }
@@ -223,9 +205,9 @@ pub fn wait<'a, K: Eq + Clone + Copy>(
                     (
                         key.clone(),
                         Event {
-                            readable: revents.intersects(Events::READ),
-                            writable: revents.intersects(Events::WRITE),
-                            errored: revents.intersects(Events::POLLERR | Events::POLLNVAL),
+                            readable: revents & events::READ != 0,
+                            writable: revents & events::WRITE != 0,
+                            errored: revents & (events::POLLERR | events::POLLNVAL) != 0,
                             descriptor,
                         },
                     )

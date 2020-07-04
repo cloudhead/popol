@@ -24,7 +24,7 @@ By building on `poll`, we have the following advantages:
 
 * Much smaller implementation than even the smallest *async/await* runtimes
 * All of the Rust standard library just works
-* Close to zero-dependency (*popol* depends solely on *libc* and *bitflags*)
+* Virtually zero-dependency (*popol* depends solely on *libc*)
 * No "runtime" keeps the code much easier to reason about
 
 Why not use `epoll`? A couple of reasons:

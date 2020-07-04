@@ -9,7 +9,7 @@ fn main() -> io::Result<()> {
     let mut stream = net::TcpStream::connect("localhost:8888").unwrap();
     let mut descriptors = Descriptors::new();
 
-    descriptors.register(stream.peer_addr()?, &stream, popol::Events::READ);
+    descriptors.register(stream.peer_addr()?, &stream, popol::events::READ);
 
     loop {
         match popol::wait(&mut descriptors, time::Duration::from_secs(6))? {
