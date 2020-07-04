@@ -177,7 +177,7 @@ impl Waker {
     ///     let mut waker = Waker::new(&mut descriptors, WAKER)?;
     ///
     ///     let handle = thread::spawn(move || {
-    ///         thread::sleep(Duration::from_millis(360));
+    ///         thread::sleep(Duration::from_millis(160));
     ///
     ///         // Wake the queue on the other thread.
     ///         waker.wake().expect("waking shouldn't fail");
@@ -284,5 +284,66 @@ pub fn wait<'a, K: Eq + Clone>(
         )))
     } else {
         Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::io;
+    use std::time::Duration;
+
+    #[test]
+    fn test_readable() -> io::Result<()> {
+        let (writer0, reader0) = UnixStream::pair()?;
+        let (writer1, reader1) = UnixStream::pair()?;
+        let (writer2, reader2) = UnixStream::pair()?;
+
+        let mut descriptors = Descriptors::new();
+
+        for reader in &[&reader0, &reader1, &reader2] {
+            reader.set_nonblocking(true)?;
+        }
+
+        descriptors.register("reader0", &reader0, events::READ);
+        descriptors.register("reader1", &reader1, events::READ);
+        descriptors.register("reader2", &reader2, events::READ);
+
+        {
+            let result = wait(&mut descriptors, Duration::from_millis(1))?;
+            assert!(result.is_empty());
+        }
+
+        let tests = &mut [
+            (&writer0, &reader0, "reader0", 0x1 as u8),
+            (&writer1, &reader1, "reader1", 0x2 as u8),
+            (&writer2, &reader2, "reader2", 0x3 as u8),
+        ];
+
+        for (mut writer, mut reader, key, byte) in tests.iter_mut() {
+            let mut buf = [0u8; 1];
+
+            assert!(matches!(
+                reader.read(&mut buf[..]),
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock
+            ));
+
+            writer.write(&[*byte])?;
+
+            let result = wait(&mut descriptors, Duration::from_millis(1))?;
+            assert!(!result.is_empty());
+
+            let mut events = result.iter();
+            let (k, event) = events.next().unwrap();
+
+            assert_eq!(&k, key);
+            assert!(event.readable && !event.writable && !event.errored);
+            assert!(events.next().is_none());
+
+            assert_eq!(reader.read(&mut buf[..])?, 1);
+            assert_eq!(&buf[..], &[*byte]);
+        }
+        Ok(())
     }
 }
