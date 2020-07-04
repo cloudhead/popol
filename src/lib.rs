@@ -96,21 +96,18 @@ impl<K: Eq + Copy + Clone> Descriptors<K> {
         }
     }
 
-    pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Events) {
-        self.insert(key, Descriptor::new(fd.as_raw_fd(), events));
+    pub fn with_capacity(cap: usize) -> Self {
+        let wakers = HashMap::new();
+
+        Self {
+            wakers,
+            index: Vec::with_capacity(cap),
+            list: Vec::with_capacity(cap),
+        }
     }
 
-    pub fn waker(&mut self, key: K) -> io::Result<Waker> {
-        let (writer, reader) = UnixStream::pair()?;
-        let fd = reader.as_raw_fd();
-
-        reader.set_nonblocking(true)?;
-        writer.set_nonblocking(true)?;
-
-        self.wakers.insert(self.list.len(), reader);
-        self.insert(key, Descriptor::new(fd, events::READ));
-
-        Ok(Waker { writer })
+    pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Events) {
+        self.insert(key, Descriptor::new(fd.as_raw_fd(), events));
     }
 
     pub fn unregister(&mut self, key: K) {
@@ -139,11 +136,86 @@ pub enum Poll<'a, K> {
     Ready(Box<dyn Iterator<Item = (K, Event<'a>)> + 'a>),
 }
 
+impl<'a, K: 'a> Poll<'a, K> {
+    pub fn iter(self) -> Box<dyn Iterator<Item = (K, Event<'a>)> + 'a> {
+        match self {
+            Self::Ready(iter) => iter,
+            Self::Timeout => Box::new(std::iter::empty()),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Self::Timeout)
+    }
+}
+
+/// Wakers are used to wake up `poll`.
+///
+/// Unlike the `mio` crate, it's okay to drop wakers after they have been used.
+///
 pub struct Waker {
     writer: UnixStream,
 }
 
 impl Waker {
+    /// Create a new `Waker`.
+    ///
+    /// # Examples
+    ///
+    /// Wake a `Poll` instance from another thread.
+    ///
+    /// ```
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     use std::thread;
+    ///     use std::time::Duration;
+    ///
+    ///     use popol::{Descriptors, Waker};
+    ///
+    ///     const WAKER: &'static str = "waker";
+    ///
+    ///     let mut descriptors = Descriptors::new();
+    ///     let mut waker = Waker::new(&mut descriptors, WAKER)?;
+    ///
+    ///     let handle = thread::spawn(move || {
+    ///         thread::sleep(Duration::from_millis(360));
+    ///
+    ///         // Wake the queue on the other thread.
+    ///         waker.wake().expect("waking shouldn't fail");
+    ///     });
+    ///
+    ///     // Wait to be woken up by the other thread. Otherwise, time out.
+    ///     let result = popol::wait(&mut descriptors, Duration::from_secs(1))?;
+    ///
+    ///     assert!(!result.is_empty(), "There should be at least one event selected");
+    ///
+    ///     let mut events = result.iter();
+    ///     let (key, event) = events.next().unwrap();
+    ///
+    ///     assert!(key == WAKER, "The event is triggered by the waker");
+    ///     assert!(event.readable, "The event is readable");
+    ///     assert!(events.next().is_none(), "There was only one event");
+    ///
+    ///     handle.join().unwrap();
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn new<K: Eq + Clone + Copy>(
+        descriptors: &mut Descriptors<K>,
+        key: K,
+    ) -> io::Result<Waker> {
+        let (writer, reader) = UnixStream::pair()?;
+        let fd = reader.as_raw_fd();
+
+        reader.set_nonblocking(true)?;
+        writer.set_nonblocking(true)?;
+
+        descriptors.wakers.insert(descriptors.list.len(), reader);
+        descriptors.insert(key, Descriptor::new(fd, events::READ));
+
+        Ok(Waker { writer })
+    }
+
     pub fn wake(&mut self) -> io::Result<()> {
         self.writer.write(&[0x1])?;
 
