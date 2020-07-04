@@ -230,9 +230,7 @@ impl Waker {
     /// TODO: Handle `ErrorKind::WouldBlock`
     fn snooze(reader: &mut UnixStream) -> io::Result<()> {
         let mut buf = [0u8; 1];
-        let n = reader.read(&mut buf)?;
-
-        assert_eq!(n, 1);
+        reader.read_exact(&mut buf)?;
 
         Ok(())
     }
