@@ -85,7 +85,7 @@ pub struct Descriptors<K> {
     list: Vec<Descriptor>,
 }
 
-impl<K: Eq + Copy + Clone> Descriptors<K> {
+impl<K: Eq + Clone> Descriptors<K> {
     pub fn new() -> Self {
         let wakers = HashMap::new();
 
@@ -200,10 +200,7 @@ impl Waker {
     ///     Ok(())
     /// }
     /// ```
-    pub fn new<K: Eq + Clone + Copy>(
-        descriptors: &mut Descriptors<K>,
-        key: K,
-    ) -> io::Result<Waker> {
+    pub fn new<K: Eq + Clone>(descriptors: &mut Descriptors<K>, key: K) -> io::Result<Waker> {
         let (writer, reader) = UnixStream::pair()?;
         let fd = reader.as_raw_fd();
 
@@ -239,7 +236,7 @@ impl Waker {
     }
 }
 
-pub fn wait<'a, K: Eq + Clone + Copy>(
+pub fn wait<'a, K: Eq + Clone>(
     fds: &'a mut Descriptors<K>,
     timeout: time::Duration,
 ) -> Result<Poll<'a, K>, io::Error> {
