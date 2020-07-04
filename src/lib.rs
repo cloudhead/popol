@@ -1,3 +1,5 @@
+#![allow(clippy::new_without_default)]
+#![allow(clippy::comparison_chain)]
 use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
@@ -53,7 +55,7 @@ impl<'a> Event<'a> {
     }
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Descriptor {
     fd: RawFd,
@@ -75,7 +77,7 @@ impl Descriptor {
     }
 
     pub fn unset(&mut self, events: Events) {
-        self.events = self.events & !events;
+        self.events &= !events;
     }
 }
 
@@ -214,7 +216,7 @@ impl Waker {
     }
 
     pub fn wake(&mut self) -> io::Result<()> {
-        self.writer.write(&[0x1])?;
+        self.writer.write_all(&[0x1])?;
 
         Ok(())
     }
