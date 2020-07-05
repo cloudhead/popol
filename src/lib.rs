@@ -45,7 +45,7 @@ pub struct Event<'a> {
     /// The file is readable.
     pub readable: bool,
     /// The file has be disconnected.
-    pub closed: bool,
+    pub hangup: bool,
     /// An error has occured on the file.
     pub errored: bool,
     /// The underlying descriptor.
@@ -65,7 +65,7 @@ impl<'a> From<&'a mut Descriptor> for Event<'a> {
         Self {
             readable: revents & events::READ != 0,
             writable: revents & events::WRITE != 0,
-            closed: revents & events::POLLHUP != 0,
+            hangup: revents & events::POLLHUP != 0,
             errored: revents & (events::POLLERR | events::POLLNVAL) != 0,
             descriptor,
         }
@@ -348,7 +348,7 @@ mod tests {
             let (k, event) = events.next().unwrap();
 
             assert_eq!(&k, key);
-            assert!(event.readable && !event.writable && !event.errored && !event.closed);
+            assert!(event.readable && !event.writable && !event.errored && !event.hangup);
             assert!(events.next().is_none());
 
             assert_eq!(reader.read(&mut buf[..])?, 1);
@@ -394,7 +394,7 @@ mod tests {
                 assert!(!event.writable);
                 assert!(!event.errored);
 
-                if event.closed {
+                if event.hangup {
                     closed.push(key);
                     continue;
                 }
