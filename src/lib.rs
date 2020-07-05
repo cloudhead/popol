@@ -135,12 +135,12 @@ impl<K: Eq + Clone> Descriptors<K> {
     }
 }
 
-pub enum Poll<'a, K> {
+pub enum Wait<'a, K> {
     Timeout,
     Ready(Box<dyn Iterator<Item = (K, Event<'a>)> + 'a>),
 }
 
-impl<'a, K: 'a> Poll<'a, K> {
+impl<'a, K: 'a> Wait<'a, K> {
     pub fn iter(self) -> Box<dyn Iterator<Item = (K, Event<'a>)> + 'a> {
         match self {
             Self::Ready(iter) => iter,
@@ -166,7 +166,7 @@ impl Waker {
     ///
     /// # Examples
     ///
-    /// Wake a `Poll` instance from another thread.
+    /// Wake a `wait` call from another thread.
     ///
     /// ```
     /// fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -241,7 +241,7 @@ impl Waker {
 pub fn wait<'a, K: Eq + Clone>(
     fds: &'a mut Descriptors<K>,
     timeout: time::Duration,
-) -> Result<Poll<'a, K>, io::Error> {
+) -> Result<Wait<'a, K>, io::Error> {
     let timeout = timeout.as_millis() as libc::c_int;
 
     let result = unsafe {
@@ -253,11 +253,11 @@ pub fn wait<'a, K: Eq + Clone>(
     };
 
     if result == 0 {
-        Ok(Poll::Timeout)
+        Ok(Wait::Timeout)
     } else if result > 0 {
         let wakers = &mut fds.wakers;
 
-        Ok(Poll::Ready(Box::new(
+        Ok(Wait::Ready(Box::new(
             fds.index
                 .iter()
                 .zip(fds.list.iter_mut())
