@@ -1,7 +1,6 @@
 # popol
 
-*An minimal  ergonomic wrapper around `poll()`, built for peer-to-peer
-networking.*
+*Minimal non-blocking I/O for Rust.*
 
 Async I/O in Rust is still an unsolved problem. With the stabilization of
 *async/await*, we are seeing a number of libraries and runtimes crop up, such
@@ -20,12 +19,15 @@ and up to a few hundred open connections without blocking, is all we need.
 This places us squarely within the territory of the venerable `poll()` function,
 which is available on almost all platforms.
 
+Popol is designed as a minimal ergonomic wrapper around `poll()`, built for
+peer-to-peer networking.
+
 By building on `poll`, we have the following advantages:
 
 * Much smaller implementation than even the smallest *async/await* runtimes
-* All of the Rust standard library just works
-* Virtually zero-dependency (*popol* depends solely on *libc*)
-* No "runtime" keeps the code much easier to reason about
+* All of the Rust standard library just works (`io::Read`, `io::Write`, etc.)
+* Virtually zero-dependency (the *libc* crate is the only dependency)
+* No "runtime". Keeps the code much easier to reason about
 
 Why not use `epoll`? A couple of reasons:
 
@@ -33,6 +35,12 @@ Why not use `epoll`? A couple of reasons:
 2. It isn't portable (only works on Linux)
 3. `poll` is sufficient for handling most workloads
 
-Why not *mio*? It is quite a bit more complex, and comes with its own
-socket library which wraps all of the standard library types.
-If that doesn't bother you, it's a good choice!
+Compared to *mio*, *popol* is:
+
+* A lot smaller (about 10% of the size)
+* A little more flexible and easy to use
+* Supports standard library sockets
+* Currently focused on unix-based system compatibility
+
+On the other hand, *mio* is a lot more mature and better at handling very
+large number of connections
