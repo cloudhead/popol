@@ -43,6 +43,8 @@ pub struct Event<'a> {
     pub writable: bool,
     /// The file is readable.
     pub readable: bool,
+    /// The file has be disconnected.
+    pub closed: bool,
     /// An error has occured on the file.
     pub errored: bool,
     /// The underlying descriptor.
@@ -276,6 +278,7 @@ pub fn wait<'a, K: Eq + Clone>(
                         Event {
                             readable: revents & events::READ != 0,
                             writable: revents & events::WRITE != 0,
+                            closed: revents & events::POLLHUP != 0,
                             errored: revents & (events::POLLERR | events::POLLNVAL) != 0,
                             descriptor,
                         },
@@ -292,7 +295,6 @@ mod tests {
     use super::*;
 
     use std::io;
-    use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
 
@@ -340,7 +342,7 @@ mod tests {
             let (k, event) = events.next().unwrap();
 
             assert_eq!(&k, key);
-            assert!(event.readable && !event.writable && !event.errored);
+            assert!(event.readable && !event.writable && !event.errored && !event.closed);
             assert!(events.next().is_none());
 
             assert_eq!(reader.read(&mut buf[..])?, 1);
@@ -356,36 +358,40 @@ mod tests {
         let (writer2, reader2) = UnixStream::pair()?;
 
         let mut descriptors = Descriptors::new();
+        let readers = &[&reader0, &reader1, &reader2];
 
-        for reader in &[&reader0, &reader1, &reader2] {
+        for reader in readers {
             reader.set_nonblocking(true)?;
         }
-
-        let barrier = Arc::new(Barrier::new(2));
 
         descriptors.register("reader0", &reader0, events::READ);
         descriptors.register("reader1", &reader1, events::READ);
         descriptors.register("reader2", &reader2, events::READ);
 
-        let exit = barrier.clone();
         let handle = thread::spawn(move || {
             thread::sleep(Duration::from_millis(8));
 
-            for writer in &mut [writer1, writer2, writer0] {
+            for writer in &mut [&writer1, &writer2, &writer0] {
                 writer.write(&[1]).unwrap();
                 writer.write(&[2]).unwrap();
             }
-            exit.wait();
         });
 
-        let mut read = 0;
-        while read < 6 {
-            let result = wait(&mut descriptors, Duration::from_millis(32))?;
+        let mut closed = vec![];
+        while closed.len() < readers.len() {
+            let result = wait(&mut descriptors, Duration::from_millis(64))?;
 
             assert!(!result.is_empty());
 
             for (key, event) in result.iter() {
-                assert!(event.readable && !event.writable && !event.errored);
+                assert!(event.readable);
+                assert!(!event.writable);
+                assert!(!event.errored);
+
+                if event.closed {
+                    closed.push(key);
+                    continue;
+                }
 
                 let mut buf = [0u8; 2];
                 let mut reader = match key {
@@ -394,12 +400,12 @@ mod tests {
                     "reader2" => &reader2,
                     _ => unreachable!(),
                 };
-                read += reader.read(&mut buf[..])?;
+                let n = reader.read(&mut buf[..])?;
 
+                assert_eq!(n, 2);
                 assert_eq!(&buf[..], &[1, 2]);
             }
         }
-        barrier.wait();
         handle.join().unwrap();
 
         Ok(())
