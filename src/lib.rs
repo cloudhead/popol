@@ -58,6 +58,20 @@ impl<'a> Event<'a> {
     }
 }
 
+impl<'a> From<&'a mut Descriptor> for Event<'a> {
+    fn from(descriptor: &'a mut Descriptor) -> Self {
+        let revents = descriptor.revents;
+
+        Self {
+            readable: revents & events::READ != 0,
+            writable: revents & events::WRITE != 0,
+            closed: revents & events::POLLHUP != 0,
+            errored: revents & (events::POLLERR | events::POLLNVAL) != 0,
+            descriptor,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Descriptor {
@@ -274,18 +288,7 @@ pub fn wait<'a, K: Eq + Clone>(
                         Waker::snooze(reader).unwrap();
                     }
 
-                    let read_events = events::READ | events::POLLHUP | events::POLLERR;
-                    let write_events = events::WRITE | events::POLLERR;
-                    (
-                        key.clone(),
-                        Event {
-                            readable: revents & read_events != 0,
-                            writable: revents & write_events != 0,
-                            closed: revents & events::POLLHUP != 0,
-                            errored: revents & (events::POLLERR | events::POLLNVAL) != 0,
-                            descriptor,
-                        },
-                    )
+                    (key.clone(), Event::from(descriptor))
                 }),
         )))
     } else {
