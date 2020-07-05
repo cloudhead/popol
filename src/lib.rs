@@ -90,7 +90,7 @@ impl Descriptor {
     }
 
     pub fn set(&mut self, events: Events) {
-        self.events = events;
+        self.events |= events;
     }
 
     pub fn unset(&mut self, events: Events) {
