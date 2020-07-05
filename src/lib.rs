@@ -148,6 +148,13 @@ impl<K: Eq + Clone> Descriptors<K> {
         self.index.push(key);
         self.list.push(descriptor);
     }
+
+    pub fn get_mut(&mut self, key: K) -> Option<&mut Descriptor> {
+        if let Some(ix) = self.index.iter().position(|k| k == &key) {
+            return Some(&mut self.list[ix]);
+        }
+        None
+    }
 }
 
 pub enum Wait<'a, K> {
