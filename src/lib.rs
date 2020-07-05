@@ -292,6 +292,8 @@ mod tests {
     use super::*;
 
     use std::io;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
     use std::time::Duration;
 
     #[test]
@@ -344,6 +346,62 @@ mod tests {
             assert_eq!(reader.read(&mut buf[..])?, 1);
             assert_eq!(&buf[..], &[*byte]);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_threaded() -> io::Result<()> {
+        let (writer0, reader0) = UnixStream::pair()?;
+        let (writer1, reader1) = UnixStream::pair()?;
+        let (writer2, reader2) = UnixStream::pair()?;
+
+        let mut descriptors = Descriptors::new();
+
+        for reader in &[&reader0, &reader1, &reader2] {
+            reader.set_nonblocking(true)?;
+        }
+
+        let barrier = Arc::new(Barrier::new(2));
+
+        descriptors.register("reader0", &reader0, events::READ);
+        descriptors.register("reader1", &reader1, events::READ);
+        descriptors.register("reader2", &reader2, events::READ);
+
+        let exit = barrier.clone();
+        let handle = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(8));
+
+            for writer in &mut [writer1, writer2, writer0] {
+                writer.write(&[1]).unwrap();
+                writer.write(&[2]).unwrap();
+            }
+            exit.wait();
+        });
+
+        let mut read = 0;
+        while read < 6 {
+            let result = wait(&mut descriptors, Duration::from_millis(32))?;
+
+            assert!(!result.is_empty());
+
+            for (key, event) in result.iter() {
+                assert!(event.readable && !event.writable && !event.errored);
+
+                let mut buf = [0u8; 2];
+                let mut reader = match key {
+                    "reader0" => &reader0,
+                    "reader1" => &reader1,
+                    "reader2" => &reader2,
+                    _ => unreachable!(),
+                };
+                read += reader.read(&mut buf[..])?;
+
+                assert_eq!(&buf[..], &[1, 2]);
+            }
+        }
+        barrier.wait();
+        handle.join().unwrap();
+
         Ok(())
     }
 }
