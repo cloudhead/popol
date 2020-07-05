@@ -16,25 +16,26 @@ pub mod events {
     /// Events that can be waited for.
     pub type Events = libc::c_short;
 
+    /// The associated file is ready to be read.
+    pub const READ: Events = POLLIN | POLLPRI;
+    /// The associated file is ready to be written.
+    pub const WRITE: Events = POLLOUT | libc::POLLWRBAND;
+
     /// The associated file is available for read operations.
-    pub const POLLIN: Events = libc::POLLIN;
+    pub(super) const POLLIN: Events = libc::POLLIN;
     /// There is urgent data available for read operations.
-    pub const POLLPRI: Events = libc::POLLPRI;
+    pub(super) const POLLPRI: Events = libc::POLLPRI;
     /// The associated file is available for write operations.
-    pub const POLLOUT: Events = libc::POLLOUT;
+    pub(super) const POLLOUT: Events = libc::POLLOUT;
     /// Error condition happened on the associated file descriptor.
     /// `poll` will always wait for this event; it is not necessary to set it.
-    pub const POLLERR: Events = libc::POLLERR;
+    pub(super) const POLLERR: Events = libc::POLLERR;
     /// Hang up happened on the associated file descriptor.
     /// `poll` will always wait for this event; it is not necessary to set it.
-    pub const POLLHUP: Events = libc::POLLHUP;
+    pub(super) const POLLHUP: Events = libc::POLLHUP;
     /// The associated file is invalid.
     /// `poll` will always wait for this event; it is not necessary to set it.
-    pub const POLLNVAL: Events = libc::POLLNVAL;
-    /// The associated file is ready to be read.
-    pub const READ: Events = libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLPRI;
-    /// The associated file is ready to be written.
-    pub const WRITE: Events = libc::POLLOUT | libc::POLLERR;
+    pub(super) const POLLNVAL: Events = libc::POLLNVAL;
 }
 
 #[derive(Debug)]
@@ -268,16 +269,18 @@ pub fn wait<'a, K: Eq + Clone>(
 
                     if let Some(reader) = wakers.get_mut(&i) {
                         assert!(revents & events::READ != 0);
-                        assert!(revents & events::POLLOUT == 0);
+                        assert!(revents & events::WRITE == 0);
 
                         Waker::snooze(reader).unwrap();
                     }
 
+                    let read_events = events::READ | events::POLLHUP | events::POLLERR;
+                    let write_events = events::WRITE | events::POLLERR;
                     (
                         key.clone(),
                         Event {
-                            readable: revents & events::READ != 0,
-                            writable: revents & events::WRITE != 0,
+                            readable: revents & read_events != 0,
+                            writable: revents & write_events != 0,
                             closed: revents & events::POLLHUP != 0,
                             errored: revents & (events::POLLERR | events::POLLNVAL) != 0,
                             descriptor,
