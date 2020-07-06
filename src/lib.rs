@@ -129,15 +129,15 @@ impl<K: Eq + Clone> Descriptors<K> {
         self.insert(key, Descriptor::new(fd.as_raw_fd(), events));
     }
 
-    pub fn unregister(&mut self, key: K) {
-        if let Some(ix) = self.index.iter().position(|k| k == &key) {
+    pub fn unregister(&mut self, key: &K) {
+        if let Some(ix) = self.index.iter().position(|k| k == key) {
             self.index.swap_remove(ix);
             self.list.swap_remove(ix);
         }
     }
 
-    pub fn set(&mut self, key: K, events: Events) -> bool {
-        if let Some(ix) = self.index.iter().position(|k| k == &key) {
+    pub fn set(&mut self, key: &K, events: Events) -> bool {
+        if let Some(ix) = self.index.iter().position(|k| k == key) {
             self.list[ix].events = events;
             return true;
         }
@@ -149,8 +149,8 @@ impl<K: Eq + Clone> Descriptors<K> {
         self.list.push(descriptor);
     }
 
-    pub fn get_mut(&mut self, key: K) -> Option<&mut Descriptor> {
-        if let Some(ix) = self.index.iter().position(|k| k == &key) {
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut Descriptor> {
+        if let Some(ix) = self.index.iter().position(|k| k == key) {
             return Some(&mut self.list[ix]);
         }
         None
