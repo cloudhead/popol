@@ -138,7 +138,7 @@ impl<K: Eq + Clone> Descriptors<K> {
 
     pub fn set(&mut self, key: &K, events: Events) -> bool {
         if let Some(ix) = self.index.iter().position(|k| k == key) {
-            self.list[ix].events = events;
+            self.list[ix].set(events);
             return true;
         }
         false
