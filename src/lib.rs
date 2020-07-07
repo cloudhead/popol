@@ -48,39 +48,39 @@ pub struct Event<'a> {
     pub hangup: bool,
     /// An error has occured on the file.
     pub errored: bool,
-    /// The underlying descriptor.
-    pub descriptor: &'a mut Descriptor,
+    /// The underlying source.
+    pub source: &'a mut Source,
 }
 
 impl<'a> Event<'a> {
     pub fn stream<T: FromRawFd>(&self) -> T {
-        unsafe { T::from_raw_fd(self.descriptor.fd) }
+        unsafe { T::from_raw_fd(self.source.fd) }
     }
 }
 
-impl<'a> From<&'a mut Descriptor> for Event<'a> {
-    fn from(descriptor: &'a mut Descriptor) -> Self {
-        let revents = descriptor.revents;
+impl<'a> From<&'a mut Source> for Event<'a> {
+    fn from(source: &'a mut Source) -> Self {
+        let revents = source.revents;
 
         Self {
             readable: revents & events::READ != 0,
             writable: revents & events::WRITE != 0,
             hangup: revents & events::POLLHUP != 0,
             errored: revents & (events::POLLERR | events::POLLNVAL) != 0,
-            descriptor,
+            source,
         }
     }
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct Descriptor {
+pub struct Source {
     fd: RawFd,
     events: Events,
     revents: Events,
 }
 
-impl Descriptor {
+impl Source {
     pub fn new(fd: RawFd, events: Events) -> Self {
         Self {
             fd,
@@ -98,13 +98,13 @@ impl Descriptor {
     }
 }
 
-pub struct Descriptors<K> {
+pub struct Sources<K> {
     wakers: HashMap<usize, UnixStream>,
     index: Vec<K>,
-    list: Vec<Descriptor>,
+    list: Vec<Source>,
 }
 
-impl<K: Eq + Clone> Descriptors<K> {
+impl<K: Eq + Clone> Sources<K> {
     pub fn new() -> Self {
         let wakers = HashMap::new();
 
@@ -126,7 +126,7 @@ impl<K: Eq + Clone> Descriptors<K> {
     }
 
     pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Events) {
-        self.insert(key, Descriptor::new(fd.as_raw_fd(), events));
+        self.insert(key, Source::new(fd.as_raw_fd(), events));
     }
 
     pub fn unregister(&mut self, key: &K) {
@@ -144,12 +144,12 @@ impl<K: Eq + Clone> Descriptors<K> {
         false
     }
 
-    pub fn insert(&mut self, key: K, descriptor: Descriptor) {
+    pub fn insert(&mut self, key: K, source: Source) {
         self.index.push(key);
-        self.list.push(descriptor);
+        self.list.push(source);
     }
 
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut Descriptor> {
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut Source> {
         if let Some(ix) = self.index.iter().position(|k| k == key) {
             return Some(&mut self.list[ix]);
         }
@@ -195,12 +195,12 @@ impl Waker {
     ///     use std::thread;
     ///     use std::time::Duration;
     ///
-    ///     use popol::{Descriptors, Waker};
+    ///     use popol::{Sources, Waker};
     ///
     ///     const WAKER: &'static str = "waker";
     ///
-    ///     let mut descriptors = Descriptors::new();
-    ///     let mut waker = Waker::new(&mut descriptors, WAKER)?;
+    ///     let mut sources = Sources::new();
+    ///     let mut waker = Waker::new(&mut sources, WAKER)?;
     ///
     ///     let handle = thread::spawn(move || {
     ///         thread::sleep(Duration::from_millis(160));
@@ -210,7 +210,7 @@ impl Waker {
     ///     });
     ///
     ///     // Wait to be woken up by the other thread. Otherwise, time out.
-    ///     let result = popol::wait(&mut descriptors, Duration::from_secs(1))?;
+    ///     let result = popol::wait(&mut sources, Duration::from_secs(1))?;
     ///
     ///     assert!(!result.is_empty(), "There should be at least one event selected");
     ///
@@ -226,15 +226,15 @@ impl Waker {
     ///     Ok(())
     /// }
     /// ```
-    pub fn new<K: Eq + Clone>(descriptors: &mut Descriptors<K>, key: K) -> io::Result<Waker> {
+    pub fn new<K: Eq + Clone>(sources: &mut Sources<K>, key: K) -> io::Result<Waker> {
         let (writer, reader) = UnixStream::pair()?;
         let fd = reader.as_raw_fd();
 
         reader.set_nonblocking(true)?;
         writer.set_nonblocking(true)?;
 
-        descriptors.wakers.insert(descriptors.list.len(), reader);
-        descriptors.insert(key, Descriptor::new(fd, events::READ));
+        sources.wakers.insert(sources.list.len(), reader);
+        sources.insert(key, Source::new(fd, events::READ));
 
         Ok(Waker { writer })
     }
@@ -261,7 +261,7 @@ impl Waker {
 }
 
 pub fn wait<'a, K: Eq + Clone>(
-    fds: &'a mut Descriptors<K>,
+    fds: &'a mut Sources<K>,
     timeout: time::Duration,
 ) -> Result<Wait<'a, K>, io::Error> {
     let timeout = timeout.as_millis() as libc::c_int;
@@ -285,8 +285,8 @@ pub fn wait<'a, K: Eq + Clone>(
                 .zip(fds.list.iter_mut())
                 .enumerate()
                 .filter(|(_, (_, d))| d.revents != 0)
-                .map(move |(i, (key, descriptor))| {
-                    let revents = descriptor.revents;
+                .map(move |(i, (key, source))| {
+                    let revents = source.revents;
 
                     if let Some(reader) = wakers.get_mut(&i) {
                         assert!(revents & events::READ != 0);
@@ -295,7 +295,7 @@ pub fn wait<'a, K: Eq + Clone>(
                         Waker::snooze(reader).unwrap();
                     }
 
-                    (key.clone(), Event::from(descriptor))
+                    (key.clone(), Event::from(source))
                 }),
         )))
     } else {
@@ -317,18 +317,18 @@ mod tests {
         let (writer1, reader1) = UnixStream::pair()?;
         let (writer2, reader2) = UnixStream::pair()?;
 
-        let mut descriptors = Descriptors::new();
+        let mut sources = Sources::new();
 
         for reader in &[&reader0, &reader1, &reader2] {
             reader.set_nonblocking(true)?;
         }
 
-        descriptors.register("reader0", &reader0, events::READ);
-        descriptors.register("reader1", &reader1, events::READ);
-        descriptors.register("reader2", &reader2, events::READ);
+        sources.register("reader0", &reader0, events::READ);
+        sources.register("reader1", &reader1, events::READ);
+        sources.register("reader2", &reader2, events::READ);
 
         {
-            let result = wait(&mut descriptors, Duration::from_millis(1))?;
+            let result = wait(&mut sources, Duration::from_millis(1))?;
             assert!(result.is_empty());
         }
 
@@ -348,7 +348,7 @@ mod tests {
 
             writer.write(&[*byte])?;
 
-            let result = wait(&mut descriptors, Duration::from_millis(1))?;
+            let result = wait(&mut sources, Duration::from_millis(1))?;
             assert!(!result.is_empty());
 
             let mut events = result.iter();
@@ -370,16 +370,16 @@ mod tests {
         let (writer1, reader1) = UnixStream::pair()?;
         let (writer2, reader2) = UnixStream::pair()?;
 
-        let mut descriptors = Descriptors::new();
+        let mut sources = Sources::new();
         let readers = &[&reader0, &reader1, &reader2];
 
         for reader in readers {
             reader.set_nonblocking(true)?;
         }
 
-        descriptors.register("reader0", &reader0, events::READ);
-        descriptors.register("reader1", &reader1, events::READ);
-        descriptors.register("reader2", &reader2, events::READ);
+        sources.register("reader0", &reader0, events::READ);
+        sources.register("reader1", &reader1, events::READ);
+        sources.register("reader2", &reader2, events::READ);
 
         let handle = thread::spawn(move || {
             thread::sleep(Duration::from_millis(8));
@@ -392,7 +392,7 @@ mod tests {
 
         let mut closed = vec![];
         while closed.len() < readers.len() {
-            let result = wait(&mut descriptors, Duration::from_millis(64))?;
+            let result = wait(&mut sources, Duration::from_millis(64))?;
 
             assert!(!result.is_empty());
 
