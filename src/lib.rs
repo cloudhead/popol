@@ -427,4 +427,138 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_unregister() -> io::Result<()> {
+        use std::collections::HashSet;
+
+        let (mut writer0, reader0) = UnixStream::pair()?;
+        let (mut writer1, reader1) = UnixStream::pair()?;
+        let (writer2, reader2) = UnixStream::pair()?;
+
+        let mut sources = Sources::new();
+
+        for reader in &[&reader0, &reader1, &reader2] {
+            reader.set_nonblocking(true)?;
+        }
+
+        sources.register("reader0", &reader0, events::READ);
+        sources.register("reader1", &reader1, events::READ);
+        sources.register("reader2", &reader2, events::READ);
+
+        {
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            assert!(result.is_empty());
+        }
+
+        {
+            writer1.write(&[0x0])?;
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            let (key, _) = result.iter().next().unwrap();
+
+            assert_eq!(key, "reader1");
+        }
+
+        // Unregister.
+        {
+            sources.unregister(&"reader1");
+            writer1.write(&[0x0])?;
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            assert!(result.iter().next().is_none());
+
+            for w in &mut [&writer0, &writer1, &writer2] {
+                w.write(&[0])?;
+            }
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            let keys = result.iter().map(|(k, _)| k).collect::<HashSet<_>>();
+
+            assert!(keys.contains("reader0"));
+            assert!(!keys.contains("reader1"));
+            assert!(keys.contains("reader2"));
+
+            sources.unregister(&"reader0");
+
+            for w in &mut [&writer0, &writer1, &writer2] {
+                w.write(&[0])?;
+            }
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            let keys = result.iter().map(|(k, _)| k).collect::<HashSet<_>>();
+
+            assert!(!keys.contains("reader0"));
+            assert!(!keys.contains("reader1"));
+            assert!(keys.contains("reader2"));
+
+            sources.unregister(&"reader2");
+
+            for w in &mut [&writer0, &writer1, &writer2] {
+                w.write(&[0])?;
+            }
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+
+            assert!(result.is_empty());
+        }
+
+        // Re-register.
+        {
+            sources.register("reader0", &reader0, events::READ);
+            writer0.write(&[0])?;
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            let (key, _) = result.iter().next().unwrap();
+
+            assert_eq!(key, "reader0");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_set() -> io::Result<()> {
+        let (mut writer0, reader0) = UnixStream::pair()?;
+        let (mut writer1, reader1) = UnixStream::pair()?;
+
+        let mut sources = Sources::new();
+
+        for reader in &[&reader0, &reader1] {
+            reader.set_nonblocking(true)?;
+        }
+
+        sources.register("reader0", &reader0, events::READ);
+        sources.register("reader1", &reader1, events::NONE);
+
+        {
+            writer0.write(&[0])?;
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            let (key, event) = result.iter().next().unwrap();
+            assert_eq!(key, "reader0");
+
+            event.source.unset(events::READ);
+            writer0.write(&[0])?;
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            assert!(result.iter().next().is_none());
+        }
+
+        {
+            writer1.write(&[0])?;
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            assert!(result.iter().next().is_none());
+
+            sources.set(&"reader1", events::READ);
+            writer1.write(&[0])?;
+
+            let result = wait(&mut sources, Duration::from_millis(1))?;
+            let (key, _) = result.iter().next().unwrap();
+            assert_eq!(key, "reader1");
+        }
+
+        Ok(())
+    }
 }
