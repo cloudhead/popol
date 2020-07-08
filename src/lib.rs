@@ -20,6 +20,10 @@ pub mod events {
     pub const READ: Events = POLLIN | POLLPRI;
     /// The associated file is ready to be written.
     pub const WRITE: Events = POLLOUT | libc::POLLWRBAND;
+    /// The associated file is ready to be read or written to.
+    pub const ALL: Events = READ | WRITE;
+    /// Don't wait for any events.
+    pub const NONE: Events = 0x0;
 
     /// The associated file is available for read operations.
     pub(super) const POLLIN: Events = libc::POLLIN;
