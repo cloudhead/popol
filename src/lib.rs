@@ -153,7 +153,7 @@ impl<K: Eq + Clone> Sources<K> {
 
     /// Unregister a  source, given its key.
     pub fn unregister(&mut self, key: &K) {
-        if let Some(ix) = self.index.iter().position(|k| k == key) {
+        if let Some(ix) = self.find(key) {
             self.index.swap_remove(ix);
             self.list.swap_remove(ix);
         }
@@ -161,7 +161,7 @@ impl<K: Eq + Clone> Sources<K> {
 
     /// Set the events to poll for on a source identified by its key.
     pub fn set(&mut self, key: &K, events: Events) -> bool {
-        if let Some(ix) = self.index.iter().position(|k| k == key) {
+        if let Some(ix) = self.find(key) {
             self.list[ix].set(events);
             return true;
         }
@@ -170,10 +170,11 @@ impl<K: Eq + Clone> Sources<K> {
 
     /// Get a source by key.
     pub fn get_mut(&mut self, key: &K) -> Option<&mut Source> {
-        if let Some(ix) = self.index.iter().position(|k| k == key) {
-            return Some(&mut self.list[ix]);
-        }
-        None
+        self.find(key).map(move |ix| &mut self.list[ix])
+    }
+
+    fn find(&self, key: &K) -> Option<usize> {
+        self.index.iter().position(|k| k == key)
     }
 
     fn insert(&mut self, key: K, source: Source) {
