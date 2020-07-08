@@ -1,3 +1,7 @@
+//!
+//! Minimal non-blocking I/O library.
+//!
+#![deny(missing_docs)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::comparison_chain)]
 use std::collections::HashMap;
@@ -12,6 +16,7 @@ type nfds_t = libc::c_ulong;
 
 pub use events::Events;
 
+/// Source readiness events.
 pub mod events {
     /// Events that can be waited for.
     pub type Events = libc::c_short;
@@ -42,6 +47,7 @@ pub mod events {
     pub(super) const POLLNVAL: Events = libc::POLLNVAL;
 }
 
+/// A source readiness event.
 #[derive(Debug)]
 pub struct Event<'a> {
     /// The file is writable.
@@ -57,7 +63,8 @@ pub struct Event<'a> {
 }
 
 impl<'a> Event<'a> {
-    pub fn stream<T: FromRawFd>(&self) -> T {
+    /// Return the source from the underlying raw file descriptor.
+    pub fn source<T: FromRawFd>(&self) -> T {
         unsafe { T::from_raw_fd(self.source.fd) }
     }
 }
@@ -76,6 +83,7 @@ impl<'a> From<&'a mut Source> for Event<'a> {
     }
 }
 
+/// A source of readiness events, eg. a `net::TcpStream`.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Source {
@@ -85,7 +93,7 @@ pub struct Source {
 }
 
 impl Source {
-    pub fn new(fd: RawFd, events: Events) -> Self {
+    fn new(fd: RawFd, events: Events) -> Self {
         Self {
             fd,
             events,
@@ -93,22 +101,29 @@ impl Source {
         }
     }
 
+    /// Set events to wait for on this source.
     pub fn set(&mut self, events: Events) {
         self.events |= events;
     }
 
+    /// Unset events to wait for on this source.
     pub fn unset(&mut self, events: Events) {
         self.events &= !events;
     }
 }
 
+/// Keeps track of sources to poll.
 pub struct Sources<K> {
+    /// Tracks  registered wakers.
     wakers: HashMap<usize, UnixStream>,
+    /// Tracks the keys assigned to each source.
     index: Vec<K>,
+    /// List of sources passed to `poll`.
     list: Vec<Source>,
 }
 
 impl<K: Eq + Clone> Sources<K> {
+    /// Creates a new set of sources to poll.
     pub fn new() -> Self {
         let wakers = HashMap::new();
 
@@ -119,6 +134,8 @@ impl<K: Eq + Clone> Sources<K> {
         }
     }
 
+    /// Creates a new set of sources to poll, with the given capacity.
+    /// Use this if you have a lot of sources to poll.
     pub fn with_capacity(cap: usize) -> Self {
         let wakers = HashMap::new();
 
@@ -129,10 +146,12 @@ impl<K: Eq + Clone> Sources<K> {
         }
     }
 
+    /// Register a new source, with the given key, and wait for the specified events.
     pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Events) {
         self.insert(key, Source::new(fd.as_raw_fd(), events));
     }
 
+    /// Unregister a  source, given its key.
     pub fn unregister(&mut self, key: &K) {
         if let Some(ix) = self.index.iter().position(|k| k == key) {
             self.index.swap_remove(ix);
@@ -140,6 +159,7 @@ impl<K: Eq + Clone> Sources<K> {
         }
     }
 
+    /// Set the events to poll for on a source identified by its key.
     pub fn set(&mut self, key: &K, events: Events) -> bool {
         if let Some(ix) = self.index.iter().position(|k| k == key) {
             self.list[ix].set(events);
@@ -148,25 +168,30 @@ impl<K: Eq + Clone> Sources<K> {
         false
     }
 
-    pub fn insert(&mut self, key: K, source: Source) {
-        self.index.push(key);
-        self.list.push(source);
-    }
-
+    /// Get a source by key.
     pub fn get_mut(&mut self, key: &K) -> Option<&mut Source> {
         if let Some(ix) = self.index.iter().position(|k| k == key) {
             return Some(&mut self.list[ix]);
         }
         None
     }
+
+    fn insert(&mut self, key: K, source: Source) {
+        self.index.push(key);
+        self.list.push(source);
+    }
 }
 
+/// Returned by `popol::wait`.
 pub enum Wait<'a, K> {
+    /// Waiting for events has timed out.
     Timeout,
+    /// Some sources are ready for reading or writing.
     Ready(Box<dyn Iterator<Item = (K, Event<'a>)> + 'a>),
 }
 
 impl<'a, K: 'a> Wait<'a, K> {
+    /// Iterate over the readiness events.
     pub fn iter(self) -> Box<dyn Iterator<Item = (K, Event<'a>)> + 'a> {
         match self {
             Self::Ready(iter) => iter,
@@ -174,6 +199,7 @@ impl<'a, K: 'a> Wait<'a, K> {
         }
     }
 
+    /// Check whether there are any readiness events.
     pub fn is_empty(&self) -> bool {
         matches!(self, Self::Timeout)
     }
@@ -243,6 +269,8 @@ impl Waker {
         Ok(Waker { writer })
     }
 
+    /// Wake up a waker. Causes `popol::wait` to return with a readiness
+    /// event for this waker.
     pub fn wake(&mut self) -> io::Result<()> {
         self.writer.write_all(&[0x1])?;
 
@@ -264,6 +292,8 @@ impl Waker {
     }
 }
 
+/// Wait for readiness events on the given list of sources. If no event
+/// is returned within the given timeout, returns `Wait::Timeout`.
 pub fn wait<'a, K: Eq + Clone>(
     fds: &'a mut Sources<K>,
     timeout: time::Duration,
