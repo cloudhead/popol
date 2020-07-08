@@ -296,15 +296,15 @@ impl Waker {
 /// Wait for readiness events on the given list of sources. If no event
 /// is returned within the given timeout, returns `Wait::Timeout`.
 pub fn wait<'a, K: Eq + Clone>(
-    fds: &'a mut Sources<K>,
+    sources: &'a mut Sources<K>,
     timeout: time::Duration,
 ) -> Result<Wait<'a, K>, io::Error> {
     let timeout = timeout.as_millis() as libc::c_int;
 
     let result = unsafe {
         libc::poll(
-            fds.list.as_mut_ptr() as *mut libc::pollfd,
-            fds.list.len() as nfds_t,
+            sources.list.as_mut_ptr() as *mut libc::pollfd,
+            sources.list.len() as nfds_t,
             timeout,
         )
     };
@@ -312,12 +312,13 @@ pub fn wait<'a, K: Eq + Clone>(
     if result == 0 {
         Ok(Wait::Timeout)
     } else if result > 0 {
-        let wakers = &mut fds.wakers;
+        let wakers = &mut sources.wakers;
 
         Ok(Wait::Ready(Box::new(
-            fds.index
+            sources
+                .index
                 .iter()
-                .zip(fds.list.iter_mut())
+                .zip(sources.list.iter_mut())
                 .enumerate()
                 .filter(|(_, (_, d))| d.revents != 0)
                 .map(move |(i, (key, source))| {
