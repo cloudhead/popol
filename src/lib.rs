@@ -4,7 +4,6 @@
 #![deny(missing_docs)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::comparison_chain)]
-use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
@@ -114,8 +113,6 @@ impl Source {
 
 /// Keeps track of sources to poll.
 pub struct Sources<K> {
-    /// Tracks  registered wakers.
-    wakers: HashMap<usize, UnixStream>,
     /// Tracks the keys assigned to each source.
     index: Vec<K>,
     /// List of sources passed to `poll`.
@@ -125,10 +122,7 @@ pub struct Sources<K> {
 impl<K: Eq + Clone> Sources<K> {
     /// Creates a new set of sources to poll.
     pub fn new() -> Self {
-        let wakers = HashMap::new();
-
         Self {
-            wakers,
             index: vec![],
             list: vec![],
         }
@@ -137,10 +131,7 @@ impl<K: Eq + Clone> Sources<K> {
     /// Creates a new set of sources to poll, with the given capacity.
     /// Use this if you have a lot of sources to poll.
     pub fn with_capacity(cap: usize) -> Self {
-        let wakers = HashMap::new();
-
         Self {
-            wakers,
             index: Vec::with_capacity(cap),
             list: Vec::with_capacity(cap),
         }
@@ -206,11 +197,9 @@ impl<'a, K: 'a> Wait<'a, K> {
     }
 }
 
-/// Wakers are used to wake up `poll`.
-///
-/// Unlike the `mio` crate, it's okay to drop wakers after they have been used.
-///
+/// Wakers are used to wake up `wait`.
 pub struct Waker {
+    reader: UnixStream,
     writer: UnixStream,
 }
 
@@ -225,19 +214,24 @@ impl Waker {
     /// fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     use std::thread;
     ///     use std::time::Duration;
+    ///     use std::sync::Arc;
     ///
     ///     use popol::{Sources, Waker};
     ///
     ///     const WAKER: &'static str = "waker";
     ///
     ///     let mut sources = Sources::new();
-    ///     let mut waker = Waker::new(&mut sources, WAKER)?;
+    ///
+    ///     // Create a waker and keep it alive until the end of the program, so that
+    ///     // the reading end doesn't get closed.
+    ///     let waker = Arc::new(Waker::new(&mut sources, WAKER)?);
+    ///     let _waker = waker.clone();
     ///
     ///     let handle = thread::spawn(move || {
     ///         thread::sleep(Duration::from_millis(160));
     ///
-    ///         // Wake the queue on the other thread.
-    ///         waker.wake().expect("waking shouldn't fail");
+    ///         // Wake up popol on the main thread.
+    ///         _waker.wake().expect("waking shouldn't fail");
     ///     });
     ///
     ///     // Wait to be woken up by the other thread. Otherwise, time out.
@@ -264,32 +258,40 @@ impl Waker {
         reader.set_nonblocking(true)?;
         writer.set_nonblocking(true)?;
 
-        sources.wakers.insert(sources.list.len(), reader);
         sources.insert(key, Source::new(fd, events::READ));
 
-        Ok(Waker { writer })
+        Ok(Waker { reader, writer })
     }
 
     /// Wake up a waker. Causes `popol::wait` to return with a readiness
     /// event for this waker.
-    pub fn wake(&mut self) -> io::Result<()> {
-        self.writer.write_all(&[0x1])?;
+    pub fn wake(&self) -> io::Result<()> {
+        use io::ErrorKind::*;
 
-        Ok(())
+        match (&self.writer).write_all(&[0x1]) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == WouldBlock => {
+                self.unblock()?;
+                self.wake()
+            }
+            Err(e) if e.kind() == Interrupted => self.wake(),
+            Err(e) => Err(e),
+        }
     }
 
-    /// Unblock the waker. This allows it to be re-awoken.
-    ///
-    /// TODO: Unclear under what conditions this `read` can fail.
-    ///       Possibly if interrupted by a signal?
-    /// TODO: Handle `ErrorKind::Interrupted`
-    /// TODO: Handle zero-length read?
-    /// TODO: Handle `ErrorKind::WouldBlock`
-    fn snooze(reader: &mut UnixStream) -> io::Result<()> {
-        let mut buf = [0u8; 1];
-        reader.read_exact(&mut buf)?;
+    /// Unblock the waker by draining the receive buffer.
+    fn unblock(&self) -> io::Result<()> {
+        let mut buf = [0; 4096];
 
-        Ok(())
+        loop {
+            match (&self.reader).read(&mut buf) {
+                Ok(0) => return Ok(()),
+                Ok(_) => continue,
+
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(e),
+            }
+        }
     }
 }
 
@@ -312,27 +314,13 @@ pub fn wait<'a, K: Eq + Clone>(
     if result == 0 {
         Ok(Wait::Timeout)
     } else if result > 0 {
-        let wakers = &mut sources.wakers;
-
         Ok(Wait::Ready(Box::new(
             sources
                 .index
                 .iter()
                 .zip(sources.list.iter_mut())
-                .enumerate()
-                .filter(|(_, (_, d))| d.revents != 0)
-                .map(move |(i, (key, source))| {
-                    let revents = source.revents;
-
-                    if let Some(reader) = wakers.get_mut(&i) {
-                        assert!(revents & events::READ != 0);
-                        assert!(revents & events::WRITE == 0);
-
-                        Waker::snooze(reader).unwrap();
-                    }
-
-                    (key.clone(), Event::from(source))
-                }),
+                .filter(|(_, d)| d.revents != 0)
+                .map(|(key, source)| (key.clone(), Event::from(source))),
         )))
     } else {
         Err(io::Error::last_os_error())
