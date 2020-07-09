@@ -581,4 +581,50 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_waker() -> io::Result<()> {
+        let mut sources = Sources::new();
+        let mut waker = Waker::new(&mut sources, "waker")?;
+        let buf = [0; 4096];
+
+        let result = wait(&mut sources, Duration::from_millis(1))?;
+        assert!(result.iter().next().is_none());
+
+        // Fill the waker stream until it would block..
+        loop {
+            match waker.writer.write(&buf) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    break;
+                }
+                Err(e) => return Err(e),
+                _ => continue,
+            }
+        }
+
+        let result = wait(&mut sources, Duration::from_millis(1))?;
+        let (key, event) = result.iter().next().unwrap();
+
+        assert!(event.readable);
+        assert!(!event.writable && !event.hangup && !event.errored);
+        assert_eq!(key, "waker");
+
+        waker.wake()?;
+
+        let result = wait(&mut sources, Duration::from_millis(1))?;
+        let (key, event) = result.iter().next().unwrap();
+
+        assert!(event.readable);
+        assert_eq!(key, "waker");
+
+        // Try to wake multiple times.
+        waker.wake()?;
+        waker.wake()?;
+        waker.wake()?;
+
+        let result = wait(&mut sources, Duration::from_millis(1))?;
+        assert_eq!(result.iter().count(), 1, "multiple wakes count as one");
+
+        Ok(())
+    }
 }
