@@ -42,5 +42,11 @@ Compared to *mio*, *popol* is:
 * Supports standard library sockets
 * Currently focused on unix-based system compatibility
 
-On the other hand, *mio* is a lot more mature and better at handling very
-large number of connections
+Some of the advantages of *popol*'s API over *mio*'s:
+
+* *popol* supports multiple *wakers* per wait call.
+* *popol* event source identifiers are not limited to `u64`.
+* *popol*'s API is composed mostly of infallible functions.
+
+On the other hand, *mio* is more mature and probably better at handling very
+large number of connections. *Mio* also currently supports more platforms.
