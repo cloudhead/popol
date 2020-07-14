@@ -10,17 +10,6 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::time;
 
-#[allow(non_camel_case_types)]
-#[cfg(target_os = "linux")]
-type nfds_t = libc::c_ulong;
-
-#[allow(non_camel_case_types)]
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "openbsd")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "android")]
-type nfds_t = libc::c_uint;
-
 pub use events::Events;
 
 /// Source readiness events.
@@ -314,7 +303,7 @@ pub fn wait<'a, K: Eq + Clone>(
     let result = unsafe {
         libc::poll(
             sources.list.as_mut_ptr() as *mut libc::pollfd,
-            sources.list.len() as nfds_t,
+            sources.list.len() as libc::nfds_t,
             timeout,
         )
     };
