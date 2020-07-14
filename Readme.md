@@ -11,8 +11,6 @@ entirely separate suite of traits (eg. `AsyncRead` and `AsyncWrite`) and I/O
 libraries. Furthermore, most of these runtimes have a large dependency
 footprint, partly from having to provide async alternatives to the standard
 library functions, and partly due to the complexity of these runtimes.
-Finally, *async/await* has a very steep learning curve and has a lot of
-rough edges.
 
 What do we need? For most use-cases, the ability to handle between a dozen
 and up to a few hundred open connections without blocking, is all we need.
@@ -50,3 +48,12 @@ Some of the advantages of *popol*'s API over *mio*'s:
 
 On the other hand, *mio* is more mature and probably better at handling very
 large number of connections. *Mio* also currently supports more platforms.
+
+## License
+
+This software is licensed under the MIT license. See the `LICENSE` file for
+details.
+
+## About
+
+(c) Alexis Sellier <https://cloudhead.io>
