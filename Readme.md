@@ -2,6 +2,10 @@
 
 *Minimal non-blocking I/O for Rust.*
 
+See `examples/` folder for usage.
+
+## Overview
+
 Async I/O in Rust is still an unsolved problem. With the stabilization of
 *async/await*, we are seeing a number of libraries and runtimes crop up, such
 as *async-std* and *smol*, while others such as *tokio* and *mio* are maturing.
