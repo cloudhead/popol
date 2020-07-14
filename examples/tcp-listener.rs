@@ -42,6 +42,7 @@ fn main() -> io::Result<()> {
         for (addr, conn) in connected.drain(..) {
             println!("{}", addr);
 
+            conn.set_nonblocking(true)?;
             sources.register(
                 Source::Peer(addr),
                 &conn,
