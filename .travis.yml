@@ -1,0 +1,18 @@
+language: rust
+os:
+  - linux
+  - osx
+rust:
+  - stable
+  - beta
+env:
+  - RUSTFLAGS="-D warnings"
+jobs:
+  fast_finish: true
+cache: cargo
+before_script:
+  - rustup component add rustfmt
+script:
+  - cargo fmt -- --check
+  - cargo check --all --examples
+  - cargo test

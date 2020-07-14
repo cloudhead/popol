@@ -11,7 +11,12 @@ use std::os::unix::net::UnixStream;
 use std::time;
 
 #[allow(non_camel_case_types)]
+#[cfg(target_os = "linux")]
 type nfds_t = libc::c_ulong;
+
+#[allow(non_camel_case_types)]
+#[cfg(target_os = "macos")]
+type nfds_t = libc::c_uint;
 
 pub use events::Events;
 
