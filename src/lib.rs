@@ -16,6 +16,9 @@ type nfds_t = libc::c_ulong;
 
 #[allow(non_camel_case_types)]
 #[cfg(target_os = "macos")]
+#[cfg(target_os = "openbsd")]
+#[cfg(target_os = "freebsd")]
+#[cfg(target_os = "android")]
 type nfds_t = libc::c_uint;
 
 pub use events::Events;
