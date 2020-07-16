@@ -1,7 +1,6 @@
 use std::io;
 use std::io::prelude::*;
 use std::net;
-use std::time;
 
 use popol::{Events, Sources};
 
@@ -14,7 +13,7 @@ fn main() -> io::Result<()> {
     sources.register(stream.peer_addr()?, &stream, popol::interest::READ);
 
     loop {
-        sources.wait(&mut events, time::Duration::from_secs(60))?;
+        sources.wait(&mut events)?;
 
         for (addr, event) in events.iter() {
             if event.readable {

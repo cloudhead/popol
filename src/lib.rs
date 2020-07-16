@@ -238,8 +238,8 @@ impl<K: Eq + Clone> Sources<K> {
     }
 
     /// Wait for readiness events on the given list of sources. If no event
-    /// is returned within the given timeout, returns `Wait::Timeout`.
-    pub fn wait<'a>(
+    /// is returned within the given timeout, returns an error of kind `io::ErrorKind::TimedOut`.
+    pub fn wait_timeout(
         &mut self,
         events: &mut Events<K>,
         timeout: time::Duration,
@@ -248,14 +248,8 @@ impl<K: Eq + Clone> Sources<K> {
 
         events.initialize(self.clone());
 
-        let result = unsafe {
-            libc::poll(
-                events.sources.list.as_mut_ptr() as *mut libc::pollfd,
-                events.sources.list.len() as libc::nfds_t,
-                timeout,
-            )
-        };
-        events.count = result as usize;
+        let result = self.poll(events, timeout);
+        events.count = result;
 
         if result == 0 {
             if self.is_empty() {
@@ -267,6 +261,33 @@ impl<K: Eq + Clone> Sources<K> {
             Ok(())
         } else {
             Err(io::Error::last_os_error())
+        }
+    }
+
+    /// Wait for readiness events on the given list of sources, or until the call
+    /// is interrupted.
+    pub fn wait(&mut self, events: &mut Events<K>) -> Result<(), io::Error> {
+        events.initialize(self.clone());
+
+        let result = self.poll(events, -1);
+        events.count = result;
+
+        if result == 0 {
+            unreachable!()
+        } else if result > 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+
+    fn poll(&mut self, events: &mut Events<K>, timeout: i32) -> usize {
+        unsafe {
+            libc::poll(
+                events.sources.list.as_mut_ptr() as *mut libc::pollfd,
+                events.sources.list.len() as libc::nfds_t,
+                timeout,
+            ) as usize
         }
     }
 
@@ -319,7 +340,7 @@ impl Waker {
     ///     });
     ///
     ///     // Wait to be woken up by the other thread. Otherwise, time out.
-    ///     sources.wait(&mut events, Duration::from_secs(1))?;
+    ///     sources.wait_timeout(&mut events, Duration::from_secs(1))?;
     ///
     ///     assert!(!events.is_empty(), "There should be at least one event selected");
     ///
@@ -406,7 +427,7 @@ mod tests {
 
         {
             let err = sources
-                .wait(&mut events, Duration::from_millis(1))
+                .wait_timeout(&mut events, Duration::from_millis(1))
                 .unwrap_err();
 
             assert_eq!(err.kind(), io::ErrorKind::TimedOut);
@@ -429,7 +450,7 @@ mod tests {
 
             writer.write(&[*byte])?;
 
-            sources.wait(&mut events, Duration::from_millis(1))?;
+            sources.wait_timeout(&mut events, Duration::from_millis(1))?;
             assert!(!events.is_empty());
 
             let mut events = events.iter();
@@ -451,7 +472,7 @@ mod tests {
         let mut sources = Sources::new();
 
         sources
-            .wait(&mut events, time::Duration::from_millis(1))
+            .wait_timeout(&mut events, time::Duration::from_millis(1))
             .expect("no error if nothing registered");
 
         assert!(events.is_empty());
@@ -467,7 +488,7 @@ mod tests {
         sources.register((), &io::stdin(), interest::READ);
 
         let err = sources
-            .wait(&mut events, Duration::from_millis(1))
+            .wait_timeout(&mut events, Duration::from_millis(1))
             .unwrap_err();
 
         assert_eq!(sources.len(), 1);
@@ -506,7 +527,7 @@ mod tests {
 
         let mut closed = vec![];
         while closed.len() < readers.len() {
-            sources.wait(&mut events, Duration::from_millis(64))?;
+            sources.wait_timeout(&mut events, Duration::from_millis(64))?;
 
             for (key, event) in events.iter() {
                 assert!(event.readable);
@@ -557,7 +578,7 @@ mod tests {
 
         {
             let err = sources
-                .wait(&mut events, Duration::from_millis(1))
+                .wait_timeout(&mut events, Duration::from_millis(1))
                 .unwrap_err();
 
             assert_eq!(err.kind(), io::ErrorKind::TimedOut);
@@ -567,7 +588,7 @@ mod tests {
         {
             writer1.write(&[0x0])?;
 
-            sources.wait(&mut events, Duration::from_millis(1))?;
+            sources.wait_timeout(&mut events, Duration::from_millis(1))?;
             let (key, _) = events.iter().next().unwrap();
 
             assert_eq!(key, &"reader1");
@@ -578,14 +599,16 @@ mod tests {
             sources.unregister(&"reader1");
             writer1.write(&[0x0])?;
 
-            sources.wait(&mut events, Duration::from_millis(1)).ok();
+            sources
+                .wait_timeout(&mut events, Duration::from_millis(1))
+                .ok();
             assert!(events.iter().next().is_none());
 
             for w in &mut [&writer0, &writer1, &writer2] {
                 w.write(&[0])?;
             }
 
-            sources.wait(&mut events, Duration::from_millis(1))?;
+            sources.wait_timeout(&mut events, Duration::from_millis(1))?;
             let keys = events.iter().map(|(k, _)| k).collect::<HashSet<_>>();
 
             assert!(keys.contains(&"reader0"));
@@ -598,7 +621,7 @@ mod tests {
                 w.write(&[0])?;
             }
 
-            sources.wait(&mut events, Duration::from_millis(1))?;
+            sources.wait_timeout(&mut events, Duration::from_millis(1))?;
             let keys = events.iter().map(|(k, _)| k).collect::<HashSet<_>>();
 
             assert!(!keys.contains(&"reader0"));
@@ -611,7 +634,9 @@ mod tests {
                 w.write(&[0])?;
             }
 
-            sources.wait(&mut events, Duration::from_millis(1)).ok();
+            sources
+                .wait_timeout(&mut events, Duration::from_millis(1))
+                .ok();
 
             assert!(events.is_empty());
         }
@@ -621,7 +646,7 @@ mod tests {
             sources.register("reader0", &reader0, interest::READ);
             writer0.write(&[0])?;
 
-            sources.wait(&mut events, Duration::from_millis(1))?;
+            sources.wait_timeout(&mut events, Duration::from_millis(1))?;
             let (key, _) = events.iter().next().unwrap();
 
             assert_eq!(key, &"reader0");
@@ -648,27 +673,31 @@ mod tests {
         {
             writer0.write(&[0])?;
 
-            sources.wait(&mut events, Duration::from_millis(1))?;
+            sources.wait_timeout(&mut events, Duration::from_millis(1))?;
             let (key, _) = events.iter().next().unwrap();
             assert_eq!(key, &"reader0");
 
             sources.unset(key, interest::READ);
             writer0.write(&[0])?;
 
-            sources.wait(&mut events, Duration::from_millis(1)).ok();
+            sources
+                .wait_timeout(&mut events, Duration::from_millis(1))
+                .ok();
             assert!(events.iter().next().is_none());
         }
 
         {
             writer1.write(&[0])?;
 
-            sources.wait(&mut events, Duration::from_millis(1)).ok();
+            sources
+                .wait_timeout(&mut events, Duration::from_millis(1))
+                .ok();
             assert!(events.iter().next().is_none());
 
             sources.set(&"reader1", interest::READ);
             writer1.write(&[0])?;
 
-            sources.wait(&mut events, Duration::from_millis(1))?;
+            sources.wait_timeout(&mut events, Duration::from_millis(1))?;
             let (key, _) = events.iter().next().unwrap();
             assert_eq!(key, &"reader1");
         }
@@ -683,7 +712,9 @@ mod tests {
         let mut waker = Waker::new(&mut sources, "waker")?;
         let buf = [0; 4096];
 
-        sources.wait(&mut events, Duration::from_millis(1)).ok();
+        sources
+            .wait_timeout(&mut events, Duration::from_millis(1))
+            .ok();
         assert!(events.iter().next().is_none());
 
         // Fill the waker stream until it would block..
@@ -697,7 +728,7 @@ mod tests {
             }
         }
 
-        sources.wait(&mut events, Duration::from_millis(1))?;
+        sources.wait_timeout(&mut events, Duration::from_millis(1))?;
         let (key, event) = events.iter().next().unwrap();
 
         assert!(event.readable);
@@ -706,7 +737,7 @@ mod tests {
 
         waker.wake()?;
 
-        sources.wait(&mut events, Duration::from_millis(1))?;
+        sources.wait_timeout(&mut events, Duration::from_millis(1))?;
         let (key, event) = events.iter().next().unwrap();
 
         assert!(event.readable);
@@ -717,7 +748,7 @@ mod tests {
         waker.wake()?;
         waker.wake()?;
 
-        sources.wait(&mut events, Duration::from_millis(1))?;
+        sources.wait_timeout(&mut events, Duration::from_millis(1))?;
         assert_eq!(events.iter().count(), 1, "multiple wakes count as one");
 
         Ok(())

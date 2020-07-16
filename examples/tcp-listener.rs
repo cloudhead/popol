@@ -1,6 +1,5 @@
 use std::io;
 use std::net;
-use std::time;
 
 use popol::{Events, Sources};
 
@@ -19,7 +18,7 @@ fn main() -> io::Result<()> {
     sources.register(Source::Listener, &listener, popol::interest::READ);
 
     loop {
-        sources.wait(&mut events, time::Duration::from_secs(60))?;
+        sources.wait(&mut events)?;
 
         for (key, event) in events.iter() {
             match key {
