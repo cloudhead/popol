@@ -25,10 +25,6 @@
 //!     // Iterate over source events. Since we only have one source
 //!     // registered, this will only iterate once.
 //!     for ((), event) in events.iter() {
-//!         // An error occured with the standard input.
-//!         if event.errored {
-//!             panic!("error on {:?}", io::stdin());
-//!         }
 //!         // The standard input has data ready to be read.
 //!         if event.readable || event.hangup {
 //!             let mut buf = [0; 1024];
@@ -64,30 +60,20 @@ pub mod interest {
     pub const READ: Interest = POLLIN | POLLPRI;
     /// The associated file is ready to be written.
     pub const WRITE: Interest = POLLOUT | libc::POLLWRBAND;
-    /// The associated file is invalid or has had an error.
-    pub const ERR: Interest = POLLERR | POLLNVAL;
-    /// The associated file has hung up.
-    pub const HANGUP: Interest = POLLHUP;
     /// The associated file is ready.
-    pub const ALL: Interest = READ | WRITE | ERR | HANGUP;
+    pub const ALL: Interest = READ | WRITE;
     /// Don't wait for any events.
     pub const NONE: Interest = 0x0;
 
+    // NOTE: POLLERR, POLLNVAL and POLLHUP are ignored as *interests*, and will
+    // always be set automatically in the output events.
+
     /// The associated file is available for read operations.
-    pub(super) const POLLIN: Interest = libc::POLLIN;
+    const POLLIN: Interest = libc::POLLIN;
     /// There is urgent data available for read operations.
-    pub(super) const POLLPRI: Interest = libc::POLLPRI;
+    const POLLPRI: Interest = libc::POLLPRI;
     /// The associated file is available for write operations.
-    pub(super) const POLLOUT: Interest = libc::POLLOUT;
-    /// Error condition happened on the associated file descriptor.
-    /// `poll` will always wait for this event; it is not necessary to set it.
-    pub(super) const POLLERR: Interest = libc::POLLERR;
-    /// Hang up happened on the associated file descriptor.
-    /// `poll` will always wait for this event; it is not necessary to set it.
-    pub(super) const POLLHUP: Interest = libc::POLLHUP;
-    /// The associated file is invalid.
-    /// `poll` will always wait for this event; it is not necessary to set it.
-    pub(super) const POLLNVAL: Interest = libc::POLLNVAL;
+    const POLLOUT: Interest = libc::POLLOUT;
 }
 
 /// A source readiness event.
@@ -101,6 +87,8 @@ pub struct Event<'a> {
     pub hangup: bool,
     /// An error has occured on the file.
     pub errored: bool,
+    /// The file is not valid.
+    pub invalid: bool,
     /// The underlying source.
     pub source: &'a Source,
 }
@@ -109,6 +97,12 @@ impl<'a> Event<'a> {
     /// Return the source from the underlying raw file descriptor.
     pub fn source<T: FromRawFd>(&self) -> T {
         unsafe { T::from_raw_fd(self.source.fd) }
+    }
+
+    /// Check whether the event is an error. Returns true if the underlying
+    /// source is invalid, or if an error occured on it.
+    pub fn is_err(&self) -> bool {
+        self.errored || self.invalid
     }
 }
 
@@ -119,8 +113,9 @@ impl<'a> From<&'a Source> for Event<'a> {
         Self {
             readable: revents & interest::READ != 0,
             writable: revents & interest::WRITE != 0,
-            hangup: revents & interest::HANGUP != 0,
-            errored: revents & interest::ERR != 0,
+            hangup: revents & libc::POLLHUP != 0,
+            errored: revents & libc::POLLERR != 0,
+            invalid: revents & libc::POLLNVAL != 0,
             source,
         }
     }
