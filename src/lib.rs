@@ -131,6 +131,7 @@ impl<K: Eq + Clone> Events<K> {
 
     /// Initialize the events list with sources.
     fn initialize(&mut self, sources: Sources<K>) {
+        self.count = 0;
         self.sources = sources;
     }
 }
@@ -249,7 +250,6 @@ impl<K: Eq + Clone> Sources<K> {
         events.initialize(self.clone());
 
         let result = self.poll(events, timeout);
-        events.count = result;
 
         if result == 0 {
             if self.is_empty() {
@@ -258,6 +258,7 @@ impl<K: Eq + Clone> Sources<K> {
                 Err(io::ErrorKind::TimedOut.into())
             }
         } else if result > 0 {
+            events.count = result as usize;
             Ok(())
         } else {
             Err(io::Error::last_os_error())
@@ -270,24 +271,24 @@ impl<K: Eq + Clone> Sources<K> {
         events.initialize(self.clone());
 
         let result = self.poll(events, -1);
-        events.count = result;
 
-        if result == 0 {
-            unreachable!()
-        } else if result > 0 {
-            Ok(())
-        } else {
+        if result < 0 {
             Err(io::Error::last_os_error())
+        } else {
+            events.count = result as usize;
+            // As far as I know, `poll` should never return `0` if the timeout
+            // value is `-1`.
+            Ok(())
         }
     }
 
-    fn poll(&mut self, events: &mut Events<K>, timeout: i32) -> usize {
+    fn poll(&mut self, events: &mut Events<K>, timeout: i32) -> i32 {
         unsafe {
             libc::poll(
                 events.sources.list.as_mut_ptr() as *mut libc::pollfd,
                 events.sources.list.len() as libc::nfds_t,
                 timeout,
-            ) as usize
+            )
         }
     }
 
