@@ -3,17 +3,18 @@ use std::io::prelude::*;
 use std::net;
 use std::time;
 
-use popol::Sources;
+use popol::{Events, Sources};
 
 fn main() -> io::Result<()> {
     let mut stream = net::TcpStream::connect("localhost:8888").unwrap();
+    let mut events = Events::new();
     let mut sources = Sources::new();
 
     stream.set_nonblocking(true)?;
-    sources.register(stream.peer_addr()?, &stream, popol::events::READ);
+    sources.register(stream.peer_addr()?, &stream, popol::interest::READ);
 
     loop {
-        let events = popol::wait(&mut sources, time::Duration::from_secs(6))?;
+        sources.wait(&mut events, time::Duration::from_secs(60))?;
 
         for (addr, event) in events.iter() {
             if event.readable {

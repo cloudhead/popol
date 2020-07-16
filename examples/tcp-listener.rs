@@ -2,7 +2,7 @@ use std::io;
 use std::net;
 use std::time;
 
-use popol::Sources;
+use popol::{Events, Sources};
 
 #[derive(Eq, PartialEq, Clone)]
 enum Source {
@@ -13,19 +13,24 @@ enum Source {
 fn main() -> io::Result<()> {
     let listener = net::TcpListener::bind("0.0.0.0:8888")?;
     let mut sources = Sources::new();
+    let mut events = Events::new();
 
     listener.set_nonblocking(true)?;
-    sources.register(Source::Listener, &listener, popol::events::READ);
-
-    let mut connected = Vec::new();
+    sources.register(Source::Listener, &listener, popol::interest::READ);
 
     loop {
-        let events = popol::wait(&mut sources, time::Duration::from_secs(6))?;
+        sources.wait(&mut events, time::Duration::from_secs(60))?;
 
-        for (key, _event) in events.iter() {
+        for (key, event) in events.iter() {
             match key {
+                Source::Peer(_addr) if event.readable => {
+                    // Peer socket has data to be read.
+                }
+                Source::Peer(_addr) if event.writable => {
+                    // Peer socket is ready to be written.
+                }
                 Source::Peer(_addr) => {
-                    // Handle peer activity
+                    // Peer socket had an error or hangup.
                 }
                 Source::Listener => loop {
                     let (conn, addr) = match listener.accept() {
@@ -34,20 +39,13 @@ fn main() -> io::Result<()> {
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                         Err(e) => return Err(e),
                     };
-                    connected.push((addr, conn));
+
+                    println!("{}", addr);
+
+                    conn.set_nonblocking(true)?;
+                    sources.register(Source::Peer(addr), &conn, popol::interest::ALL);
                 },
             }
-        }
-
-        for (addr, conn) in connected.drain(..) {
-            println!("{}", addr);
-
-            conn.set_nonblocking(true)?;
-            sources.register(
-                Source::Peer(addr),
-                &conn,
-                popol::events::READ | popol::events::WRITE,
-            );
         }
     }
 }
