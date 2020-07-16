@@ -5,6 +5,7 @@ use popol;
 fn main() -> io::Result<()> {
     // Create a registry to hold I/O sources.
     let mut sources = popol::Sources::with_capacity(1);
+    // Create an events buffer to hold readiness events.
     let mut events = popol::Events::with_capacity(1);
 
     // Register the program's standard input as a source of "read" readiness events.
