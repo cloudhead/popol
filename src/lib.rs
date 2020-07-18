@@ -169,15 +169,15 @@ impl<K: Eq + Clone> Events<K> {
     }
 
     /// Initialize the events list with sources.
-    fn initialize(&mut self, sources: Sources<K>) {
+    fn initialize(&mut self, sources: &Sources<K>) {
         self.count = 0;
-        self.sources = sources;
+        self.sources.clone_from(sources);
     }
 }
 
 /// A source of readiness events, eg. a `net::TcpStream`.
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Source {
     fd: RawFd,
     events: Interest,
@@ -284,10 +284,9 @@ impl<K: Eq + Clone> Sources<K> {
         events: &mut Events<K>,
         timeout: time::Duration,
     ) -> Result<(), io::Error> {
+        events.initialize(&self);
+
         let timeout = timeout.as_millis() as libc::c_int;
-
-        events.initialize(self.clone());
-
         let result = self.poll(events, timeout);
 
         if result == 0 {
@@ -307,7 +306,7 @@ impl<K: Eq + Clone> Sources<K> {
     /// Wait for readiness events on the given list of sources, or until the call
     /// is interrupted.
     pub fn wait(&mut self, events: &mut Events<K>) -> Result<(), io::Error> {
-        events.initialize(self.clone());
+        events.initialize(&self);
 
         let result = self.poll(events, -1);
 
