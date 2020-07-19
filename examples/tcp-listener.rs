@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io;
 use std::net;
 
@@ -17,6 +18,7 @@ fn main() -> io::Result<()> {
     let listener = net::TcpListener::bind("0.0.0.0:8888")?;
     let mut sources = Sources::new();
     let mut events = Events::new();
+    let mut peers = HashMap::new();
 
     // It's important to set the socket in non-blocking mode. This allows
     // us to know when to stop accepting connections.
@@ -52,6 +54,8 @@ fn main() -> io::Result<()> {
 
                     // Register the new peer using the `Peer` variant of `Source`.
                     sources.register(Source::Peer(addr), &conn, popol::interest::ALL);
+                    // Save the connection to make sure it isn't dropped.
+                    peers.insert(addr, conn);
                 },
             }
         }

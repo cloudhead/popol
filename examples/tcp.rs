@@ -19,23 +19,21 @@ fn main() -> io::Result<()> {
             if event.readable {
                 let mut buf = [0; 32];
 
-                loop {
-                    match stream.read(&mut buf[..]) {
-                        Ok(n) if n > 0 => {
-                            let msg = std::str::from_utf8(&buf[..n]).unwrap();
-                            println!("{}: {}", addr, msg.trim());
-                        }
-                        Ok(_) => {
-                            // Connection closed.
-                            return stream.shutdown(net::Shutdown::Both);
-                        }
-                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                            // Nothing left to read.
-                            break;
-                        }
-                        Err(err) => {
-                            panic!(err);
-                        }
+                match stream.read(&mut buf[..]) {
+                    Ok(n) if n > 0 => {
+                        let msg = std::str::from_utf8(&buf[..n]).unwrap();
+                        println!("{}: {}", addr, msg.trim());
+                    }
+                    Ok(_) => {
+                        // Connection closed.
+                        return stream.shutdown(net::Shutdown::Both);
+                    }
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                        // Nothing left to read.
+                        break;
+                    }
+                    Err(err) => {
+                        panic!(err);
                     }
                 }
             }
