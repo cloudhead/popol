@@ -242,6 +242,9 @@ impl<K: Eq + Clone> Sources<K> {
     }
 
     /// Register a new source, with the given key, and wait for the specified events.
+    ///
+    /// Care must be taken not to register the same source twice, or use the same key
+    /// for two different sources.
     pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Interest) {
         self.insert(key, Source::new(fd.as_raw_fd(), events));
     }
