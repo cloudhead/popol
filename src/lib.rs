@@ -96,8 +96,8 @@ pub struct Event<'a> {
 
 impl<'a> Event<'a> {
     /// Return the source from the underlying raw file descriptor.
-    pub fn source<T: FromRawFd>(&self) -> T {
-        unsafe { T::from_raw_fd(self.source.fd) }
+    pub unsafe fn source<T: FromRawFd>(&self) -> T {
+        T::from_raw_fd(self.source.fd)
     }
 
     /// Check whether the event is an error. Returns true if the underlying
