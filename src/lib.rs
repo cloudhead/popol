@@ -96,6 +96,11 @@ pub struct Event<'a> {
 
 impl<'a> Event<'a> {
     /// Return the source from the underlying raw file descriptor.
+    ///
+    /// # Safety
+    ///
+    /// Calls `FromRawFd::from_raw_fd`. The returned object will cause
+    /// the file to close when dropped.
     pub unsafe fn source<T: FromRawFd>(&self) -> T {
         T::from_raw_fd(self.source.fd)
     }
@@ -149,7 +154,7 @@ impl<K: Eq + Clone> Events<K> {
     }
 
     /// Iterate over ready sources and their keys.
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a K, Event<'a>)> + 'a {
+    pub fn iter(&self) -> impl Iterator<Item = (&K, Event<'_>)> {
         self.sources
             .index
             .iter()

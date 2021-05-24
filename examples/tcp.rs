@@ -33,7 +33,7 @@ fn main() -> io::Result<()> {
                         break;
                     }
                     Err(err) => {
-                        panic!(err);
+                        panic!("{}", err);
                     }
                 }
             }
