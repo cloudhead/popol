@@ -204,6 +204,12 @@ impl Source {
     }
 }
 
+impl AsRawFd for &Source {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
 /// Keeps track of sources to poll.
 #[derive(Debug, Clone)]
 pub struct Sources<K> {
@@ -418,7 +424,7 @@ impl Waker {
         match (&self.writer).write_all(&[0x1]) {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == WouldBlock => {
-                self.unblock()?;
+                Waker::reset(self.reader.as_raw_fd())?;
                 self.wake()
             }
             Err(e) if e.kind() == Interrupted => self.wake(),
@@ -426,17 +432,26 @@ impl Waker {
         }
     }
 
-    /// Unblock the waker by draining the receive buffer.
-    fn unblock(&self) -> io::Result<()> {
-        let mut buf = [0; 4096];
+    /// Reset the waker by draining the receive buffer.
+    pub fn reset(fd: impl AsRawFd) -> io::Result<()> {
+        let mut buf = [0u8; 4096];
 
         loop {
-            match (&self.reader).read(&mut buf) {
-                Ok(0) => return Ok(()),
-                Ok(_) => continue,
-
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e),
+            // We use a low-level "read" here because the alternative is to create a `UnixStream`
+            // from the `RawFd`, which has "drop" semantics which we want to avoid.
+            match unsafe {
+                libc::read(
+                    fd.as_raw_fd(),
+                    buf.as_mut_ptr() as *mut libc::c_void,
+                    buf.len(),
+                )
+            } {
+                -1 => match io::Error::last_os_error() {
+                    e if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                    e => return Err(e),
+                },
+                0 => return Ok(()),
+                _ => continue,
             }
         }
     }
@@ -792,6 +807,21 @@ mod tests {
 
         sources.wait_timeout(&mut events, Duration::from_millis(1))?;
         assert_eq!(events.iter().count(), 1, "multiple wakes count as one");
+
+        let (key, event) = events.iter().next().unwrap();
+        assert_eq!(key, &"waker");
+
+        Waker::reset(event.source).unwrap();
+
+        // Try waiting multiple times.
+        let result = sources.wait_timeout(&mut events, Duration::from_millis(1));
+        assert!(
+            matches!(
+                result.err().map(|e| e.kind()),
+                Some(io::ErrorKind::TimedOut)
+            ),
+            "the waker should only wake once"
+        );
 
         Ok(())
     }
