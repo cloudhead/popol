@@ -516,6 +516,52 @@ impl Waker {
     }
 }
 
+/// Set non-blocking mode on a stream.
+///
+/// This is a convenience function if the source of your stream doesn't provide an
+/// easy way to set it into non-blocking mode.
+///
+/// ## Example
+///
+/// ```
+/// use std::process;
+/// use popol::set_nonblocking;
+///
+/// let child = process::Command::new("ls")
+///     .stdout(process::Stdio::piped())
+///     .spawn()
+///     .unwrap();
+/// let out = child.stdout.unwrap();
+///
+/// set_nonblocking(&out, true).unwrap();
+/// ```
+///
+/// ## Return
+///
+/// On Linux, this should always return `Ok(0)` or `Err(_)`. On other operating systems,
+/// consult the `fcntl(2)` man page.
+pub fn set_nonblocking(fd: &dyn AsRawFd, nonblocking: bool) -> io::Result<i32> {
+    let fd = fd.as_raw_fd();
+
+    // SAFETY: required for FFI; shouldn't break rust guarantees.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let flags = if nonblocking {
+        flags | libc::O_NONBLOCK
+    } else {
+        flags & !libc::O_NONBLOCK
+    };
+
+    // SAFETY: required for FFI; shouldn't break rust guarantees.
+    match unsafe { libc::fcntl(fd, libc::F_SETFL, flags) } {
+        -1 => Err(io::Error::last_os_error()),
+        result => Ok(result),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
