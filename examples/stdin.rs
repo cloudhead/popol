@@ -1,4 +1,4 @@
-use std::{io, io::prelude::*, process, time};
+use std::{io, io::prelude::*, process};
 
 use popol;
 
@@ -13,7 +13,7 @@ fn main() -> io::Result<()> {
 
     // Wait on our event sources for at most 6 seconds. If an event source is
     // ready before then, process its events. Otherwise, timeout.
-    match sources.wait_timeout(&mut events, time::Duration::from_secs(6)) {
+    match sources.poll(&mut events, popol::Timeout::from_secs(6)) {
         Ok(()) => {}
         Err(err) if err.kind() == io::ErrorKind::TimedOut => process::exit(1),
         Err(err) => return Err(err),

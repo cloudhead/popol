@@ -2,7 +2,7 @@ use std::io;
 use std::io::prelude::*;
 use std::net;
 
-use popol::{Events, Sources};
+use popol::{Events, Sources, Timeout};
 
 fn main() -> io::Result<()> {
     let mut stream = net::TcpStream::connect("localhost:8888").unwrap();
@@ -13,7 +13,7 @@ fn main() -> io::Result<()> {
     sources.register(stream.peer_addr()?, &stream, popol::interest::READ);
 
     loop {
-        sources.wait(&mut events)?;
+        sources.poll(&mut events, Timeout::Never)?;
 
         for (addr, event) in events.iter() {
             if event.readable {

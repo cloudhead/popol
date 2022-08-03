@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net;
 
-use popol::{Events, Sources};
+use popol::{Events, Sources, Timeout};
 
 /// The identifier we'll use with `popol` to figure out the source
 /// of an event.
@@ -28,7 +28,7 @@ fn main() -> io::Result<()> {
     sources.register(Source::Listener, &listener, popol::interest::READ);
 
     loop {
-        sources.wait(&mut events)?;
+        sources.poll(&mut events, Timeout::Never)?;
 
         for (key, event) in events.iter() {
             match key {
