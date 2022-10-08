@@ -346,7 +346,7 @@ impl<K: Eq + Clone> Sources<K> {
     /// This is identical to [`Self::wait()`] and [`Self::wait_timeout()`] except that the timeout
     /// is optional.
     pub fn poll(&mut self, events: &mut Events<K>, timeout: Timeout) -> Result<(), io::Error> {
-        events.initialize(&self);
+        events.initialize(self);
 
         let timeout = match timeout {
             Timeout::After(duration) => duration.as_millis() as libc::c_int,
@@ -597,9 +597,9 @@ mod tests {
         }
 
         let tests = &mut [
-            (&writer0, &reader0, "reader0", 0x1 as u8),
-            (&writer1, &reader1, "reader1", 0x2 as u8),
-            (&writer2, &reader2, "reader2", 0x3 as u8),
+            (&writer0, &reader0, "reader0", 0x1u8),
+            (&writer1, &reader1, "reader1", 0x2u8),
+            (&writer2, &reader2, "reader2", 0x3u8),
         ];
 
         for (mut writer, mut reader, key, byte) in tests.iter_mut() {
@@ -610,7 +610,7 @@ mod tests {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock
             ));
 
-            writer.write(&[*byte])?;
+            writer.write_all(&[*byte])?;
 
             sources.poll(&mut events, Timeout::from_millis(1))?;
             assert!(!events.is_empty());
@@ -682,8 +682,8 @@ mod tests {
             thread::sleep(Duration::from_millis(8));
 
             for writer in &mut [&writer1, &writer2, &writer0] {
-                writer.write(&[1]).unwrap();
-                writer.write(&[2]).unwrap();
+                writer.write_all(&[1]).unwrap();
+                writer.write_all(&[2]).unwrap();
             }
         });
 
@@ -697,15 +697,15 @@ mod tests {
                 assert!(!event.errored);
 
                 if event.hangup {
-                    closed.push(key.clone());
+                    closed.push(key.to_owned());
                     continue;
                 }
 
                 let mut buf = [0u8; 2];
-                let mut reader = match key {
-                    &"reader0" => &reader0,
-                    &"reader1" => &reader1,
-                    &"reader2" => &reader2,
+                let mut reader = match *key {
+                    "reader0" => &reader0,
+                    "reader1" => &reader1,
+                    "reader2" => &reader2,
                     _ => unreachable!(),
                 };
                 let n = reader.read(&mut buf[..])?;
@@ -748,7 +748,7 @@ mod tests {
         }
 
         {
-            writer1.write(&[0x0])?;
+            writer1.write_all(&[0x0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1))?;
             let (key, _) = events.iter().next().unwrap();
@@ -759,13 +759,13 @@ mod tests {
         // Unregister.
         {
             sources.unregister(&"reader1");
-            writer1.write(&[0x0])?;
+            writer1.write_all(&[0x0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1)).ok();
             assert!(events.iter().next().is_none());
 
             for w in &mut [&writer0, &writer1, &writer2] {
-                w.write(&[0])?;
+                w.write_all(&[0])?;
             }
 
             sources.poll(&mut events, Timeout::from_millis(1))?;
@@ -778,7 +778,7 @@ mod tests {
             sources.unregister(&"reader0");
 
             for w in &mut [&writer0, &writer1, &writer2] {
-                w.write(&[0])?;
+                w.write_all(&[0])?;
             }
 
             sources.poll(&mut events, Timeout::from_millis(1))?;
@@ -791,7 +791,7 @@ mod tests {
             sources.unregister(&"reader2");
 
             for w in &mut [&writer0, &writer1, &writer2] {
-                w.write(&[0])?;
+                w.write_all(&[0])?;
             }
 
             sources.poll(&mut events, Timeout::from_millis(1)).ok();
@@ -802,7 +802,7 @@ mod tests {
         // Re-register.
         {
             sources.register("reader0", &reader0, interest::READ);
-            writer0.write(&[0])?;
+            writer0.write_all(&[0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1))?;
             let (key, _) = events.iter().next().unwrap();
@@ -829,27 +829,27 @@ mod tests {
         sources.register("reader1", &reader1, interest::NONE);
 
         {
-            writer0.write(&[0])?;
+            writer0.write_all(&[0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1))?;
             let (key, _) = events.iter().next().unwrap();
             assert_eq!(key, &"reader0");
 
             sources.unset(key, interest::READ);
-            writer0.write(&[0])?;
+            writer0.write_all(&[0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1)).ok();
             assert!(events.iter().next().is_none());
         }
 
         {
-            writer1.write(&[0])?;
+            writer1.write_all(&[0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1)).ok();
             assert!(events.iter().next().is_none());
 
             sources.set(&"reader1", interest::READ);
-            writer1.write(&[0])?;
+            writer1.write_all(&[0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1))?;
             let (key, _) = events.iter().next().unwrap();
