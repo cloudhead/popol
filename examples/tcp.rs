@@ -16,7 +16,7 @@ fn main() -> io::Result<()> {
         sources.poll(&mut events, Timeout::Never)?;
 
         for (addr, event) in events.iter() {
-            if event.readable {
+            if event.is_readable() {
                 let mut buf = [0; 32];
 
                 match stream.read(&mut buf[..]) {
