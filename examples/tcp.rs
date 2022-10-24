@@ -2,7 +2,7 @@ use std::io;
 use std::io::prelude::*;
 use std::net;
 
-use popol::{Poll, Timeout};
+use popol::Poll;
 
 fn main() -> io::Result<()> {
     let mut stream = net::TcpStream::connect("localhost:8888").unwrap();
@@ -12,7 +12,7 @@ fn main() -> io::Result<()> {
     poll.register(stream.peer_addr()?, &stream, popol::event::READ);
 
     loop {
-        poll.wait_timeout(Timeout::Never)?;
+        poll.wait()?;
 
         for (addr, event) in &poll {
             if event.is_readable() {

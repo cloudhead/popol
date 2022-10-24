@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net;
 
-use popol::{Poll, Timeout};
+use popol::Poll;
 
 /// The identifier we'll use with `popol` to figure out the source
 /// of an event.
@@ -27,7 +27,7 @@ fn main() -> io::Result<()> {
     poll.register(Source::Listener, &listener, popol::event::READ);
 
     loop {
-        poll.wait_timeout(Timeout::Never)?;
+        poll.wait()?;
 
         let mut new_peers = HashMap::new();
         for (key, event) in &poll {

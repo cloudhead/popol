@@ -8,22 +8,20 @@
 //!
 //! fn main() -> io::Result<()> {
 //!     // Create a registry to hold I/O sources.
-//!     let mut sources = popol::Poll::with_capacity(1);
-//!     // Create an events buffer to hold readiness events.
-//!     let mut events = popol::Poll::with_capacity(1);
+//!     let mut poll = popol::Poll::with_capacity(1);
 //!
 //!     // Register the program's standard input as a source of "read" readiness events.
-//!     sources.register((), &io::stdin(), popol::event::READ);
+//!     poll.register((), &io::stdin(), popol::event::READ);
 //!
 //!     // Wait on our event sources for at most 6 seconds. If an event source is
 //!     // ready before then, process its events. Otherwise, timeout.
-//!     if sources.wait_timeout(popol::Timeout::from_secs(6))? {
+//!     if poll.wait_timeout(popol::Timeout::from_secs(6))? {
 //!         process::exit(1);
 //!     }
 //!
 //!     // Iterate over source events. Since we only have one source
 //!     // registered, this will only iterate once.
-//!     for ((), event) in events.events() {
+//!     for ((), event) in &poll {
 //!         // The standard input has data ready to be read.
 //!         if event.is_readable() || event.has_hangup() {
 //!             let mut buf = [0; 1024];
