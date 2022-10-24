@@ -400,6 +400,34 @@ impl<K: Eq + Clone> Sources<K> {
     }
 }
 
+/// Iterator over all events indexed by the source keys
+pub struct IntoIter<K> {
+    /// Tracks the keys assigned to each source.
+    keys: std::vec::IntoIter<K>,
+    /// List of sources passed to `poll`.
+    list: std::vec::IntoIter<PollFd>,
+}
+
+impl<K> Iterator for IntoIter<K> {
+    type Item = (K, PollFd);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.keys.next().and_then(|k| self.list.next().map(|e| (k, e)))
+    }
+}
+
+impl<K> IntoIterator for Sources<K> {
+    type Item = (K, PollFd);
+    type IntoIter = IntoIter<K>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter {
+            keys: self.index.into_iter(),
+            list: self.list.into_iter()
+        }
+    }
+}
+
 /// Wakers are used to wake up `wait`.
 pub struct Waker {
     reader: UnixStream,
