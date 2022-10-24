@@ -104,7 +104,7 @@ impl<K: Eq + Clone> Events<K> {
     }
 
     /// Iterate over ready sources and their keys.
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &Source)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &Event)> {
         self.sources
             .index
             .iter()
@@ -179,16 +179,16 @@ impl From<Option<Duration>> for Timeout {
     }
 }
 
-/// A source of readiness events, eg. a `net::TcpStream`.
+/// A reader of events from a source, eg. a `net::TcpStream`.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
-pub struct Source {
+pub struct Event {
     fd: RawFd,
     events: Interest,
     revents: Interest,
 }
 
-impl Source {
+impl Event {
     fn new(fd: RawFd, events: Interest) -> Self {
         Self {
             fd,
@@ -249,7 +249,7 @@ impl Source {
     }
 }
 
-impl AsRawFd for &Source {
+impl AsRawFd for &Event {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
@@ -261,7 +261,7 @@ pub struct Sources<K> {
     /// Tracks the keys assigned to each source.
     index: Vec<K>,
     /// List of sources passed to `poll`.
-    list: Vec<Source>,
+    list: Vec<Event>,
 }
 
 impl<K: Eq + Clone> Sources<K> {
@@ -297,7 +297,7 @@ impl<K: Eq + Clone> Sources<K> {
     /// Care must be taken not to register the same source twice, or use the same key
     /// for two different sources.
     pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Interest) {
-        self.insert(key, Source::new(fd.as_raw_fd(), events));
+        self.insert(key, Event::new(fd.as_raw_fd(), events));
     }
 
     /// Unregister a  source, given its key.
@@ -327,7 +327,7 @@ impl<K: Eq + Clone> Sources<K> {
     }
 
     /// Get a source by key.
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut Source> {
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut Event> {
         self.find(key).map(move |ix| &mut self.list[ix])
     }
 
@@ -393,7 +393,7 @@ impl<K: Eq + Clone> Sources<K> {
         self.index.iter().position(|k| k == key)
     }
 
-    fn insert(&mut self, key: K, source: Source) {
+    fn insert(&mut self, key: K, source: Event) {
         self.index.push(key);
         self.list.push(source);
     }
@@ -461,7 +461,7 @@ impl Waker {
         reader.set_nonblocking(true)?;
         writer.set_nonblocking(true)?;
 
-        sources.insert(key, Source::new(fd, interest::READ));
+        sources.insert(key, Event::new(fd, interest::READ));
 
         Ok(Waker { reader, writer })
     }
