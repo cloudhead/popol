@@ -17,10 +17,8 @@
 //!
 //!     // Wait on our event sources for at most 6 seconds. If an event source is
 //!     // ready before then, process its events. Otherwise, timeout.
-//!     match sources.wait_timeout(popol::Timeout::from_secs(6)) {
-//!         Ok(()) => {}
-//!         Err(err) if err.kind() == io::ErrorKind::TimedOut => process::exit(1),
-//!         Err(err) => return Err(err),
+//!     if sources.wait_timeout(popol::Timeout::from_secs(6))? {
+//!         process::exit(1);
 //!     }
 //!
 //!     // Iterate over source events. Since we only have one source
@@ -336,14 +334,17 @@ impl<K: Eq + Clone> Poll<K> {
     ///
     /// Resets the information about previously collected events.
     pub fn wait(&mut self) -> Result<(), io::Error> {
-        self.wait_timeout(Timeout::Never)
+        debug_assert!(self.wait_timeout(Timeout::Never)?);
+        Ok(())
     }
 
     /// Wait for readiness events on the given list of sources. If no event
     /// is returned within the given timeout, returns an error of kind [`io::ErrorKind::TimedOut`].
     ///
+    /// Returns if the request has timed out.
+    ///
     /// Resets the information about previously collected events.
-    pub fn wait_timeout(&mut self, timeout: Timeout) -> Result<(), io::Error> {
+    pub fn wait_timeout(&mut self, timeout: Timeout) -> Result<bool, io::Error> {
         self.reset();
 
         let timeout = match timeout {
@@ -362,13 +363,13 @@ impl<K: Eq + Clone> Poll<K> {
 
         if result == 0 {
             if self.is_empty() {
-                Ok(())
+                Ok(false)
             } else {
-                Err(io::ErrorKind::TimedOut.into())
+                Ok(true)
             }
         } else if result > 0 {
             self.events_count = result as usize;
-            Ok(())
+            Ok(false)
         } else {
             Err(io::Error::last_os_error())
         }
@@ -627,9 +628,7 @@ mod tests {
         poller.register("reader2", &reader2, event::READ);
 
         {
-            let err = poller.wait_timeout(Timeout::from_millis(1)).unwrap_err();
-
-            assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+            assert!(poller.wait_timeout(Timeout::from_millis(1)).unwrap());
             assert!(!poller.has_events());
         }
 
@@ -689,10 +688,9 @@ mod tests {
 
         poll.register((), &io::stdin(), event::READ);
 
-        let err = poll.wait_timeout(Timeout::from_millis(1)).unwrap_err();
+        assert!(poll.wait_timeout(Timeout::from_millis(1)).unwrap());
 
         assert_eq!(poll.len(), 1);
-        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
         assert!(!poll.has_events());
 
         Ok(())
@@ -775,9 +773,7 @@ mod tests {
         poll.register("reader2", &reader2, event::READ);
 
         {
-            let err = poll.wait_timeout(Timeout::from_millis(1)).unwrap_err();
-
-            assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+            assert!(poll.wait_timeout(Timeout::from_millis(1)).unwrap());
             assert!(!poll.has_events());
         }
 
@@ -938,12 +934,8 @@ mod tests {
         Waker::reset(event).unwrap();
 
         // Try waiting multiple times.
-        let result = poll.wait_timeout(Timeout::from_millis(1));
         assert!(
-            matches!(
-                result.err().map(|e| e.kind()),
-                Some(io::ErrorKind::TimedOut)
-            ),
+            poll.wait_timeout(Timeout::from_millis(1)).unwrap(),
             "the waker should only wake once"
         );
 

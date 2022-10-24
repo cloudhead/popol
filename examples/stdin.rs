@@ -11,10 +11,8 @@ fn main() -> io::Result<()> {
 
     // Wait on our event sources for at most 6 seconds. If an event source is
     // ready before then, process its events. Otherwise, timeout.
-    match poll.wait_timeout(popol::Timeout::from_secs(6)) {
-        Ok(()) => {}
-        Err(err) if err.kind() == io::ErrorKind::TimedOut => process::exit(1),
-        Err(err) => return Err(err),
+    if poll.wait_timeout(popol::Timeout::from_secs(6))? {
+        process::exit(1);
     }
 
     // Iterate over source events. Since we only have one source
