@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net;
 
-use popol::{Events, Sources, Timeout};
+use popol::{Poll, Timeout};
 
 /// The identifier we'll use with `popol` to figure out the source
 /// of an event.
@@ -16,8 +16,7 @@ enum Source {
 
 fn main() -> io::Result<()> {
     let listener = net::TcpListener::bind("0.0.0.0:8888")?;
-    let mut sources = Sources::new();
-    let mut events = Events::new();
+    let mut poll = Poll::new();
     let mut peers = HashMap::new();
 
     // It's important to set the socket in non-blocking mode. This allows
@@ -25,12 +24,13 @@ fn main() -> io::Result<()> {
     listener.set_nonblocking(true)?;
 
     // Register the listener socket, using the corresponding identifier.
-    sources.register(Source::Listener, &listener, popol::event::READ);
+    poll.register(Source::Listener, &listener, popol::event::READ);
 
     loop {
-        sources.poll(&mut events, Timeout::Never)?;
+        poll.wait_timeout(Timeout::Never)?;
 
-        for (key, event) in events.iter() {
+        let mut new_peers = HashMap::new();
+        for (key, event) in &poll {
             match key {
                 Source::Peer(addr) if event.is_readable() => {
                     // Peer socket has data to be read.
@@ -52,12 +52,16 @@ fn main() -> io::Result<()> {
                     };
                     conn.set_nonblocking(true)?;
 
-                    // Register the new peer using the `Peer` variant of `Source`.
-                    sources.register(Source::Peer(addr), &conn, popol::event::ALL);
                     // Save the connection to make sure it isn't dropped.
-                    peers.insert(addr, conn);
+                    new_peers.insert(addr, conn);
                 },
             }
         }
+
+        for (addr, stream) in &new_peers {
+            // Register the new peer using the `Peer` variant of `Source`.
+            poll.register(Source::Peer(*addr), stream, popol::event::ALL);
+        }
+        peers.extend(new_peers);
     }
 }

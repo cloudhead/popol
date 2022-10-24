@@ -2,20 +2,19 @@ use std::io;
 use std::io::prelude::*;
 use std::net;
 
-use popol::{Events, Sources, Timeout};
+use popol::{Poll, Timeout};
 
 fn main() -> io::Result<()> {
     let mut stream = net::TcpStream::connect("localhost:8888").unwrap();
-    let mut events = Events::new();
-    let mut sources = Sources::new();
+    let mut poll = Poll::new();
 
     stream.set_nonblocking(true)?;
-    sources.register(stream.peer_addr()?, &stream, popol::event::READ);
+    poll.register(stream.peer_addr()?, &stream, popol::event::READ);
 
     loop {
-        sources.poll(&mut events, Timeout::Never)?;
+        poll.wait_timeout(Timeout::Never)?;
 
-        for (addr, event) in events.iter() {
+        for (addr, event) in &poll {
             if event.is_readable() {
                 let mut buf = [0; 32];
 

@@ -4,16 +4,14 @@ use popol;
 
 fn main() -> io::Result<()> {
     // Create a registry to hold I/O sources.
-    let mut sources = popol::Sources::with_capacity(1);
-    // Create an events buffer to hold readiness events.
-    let mut events = popol::Events::with_capacity(1);
+    let mut poll = popol::Poll::with_capacity(1);
 
     // Register the program's standard input as a source of "read" readiness events.
-    sources.register((), &io::stdin(), popol::event::READ);
+    poll.register((), &io::stdin(), popol::event::READ);
 
     // Wait on our event sources for at most 6 seconds. If an event source is
     // ready before then, process its events. Otherwise, timeout.
-    match sources.poll(&mut events, popol::Timeout::from_secs(6)) {
+    match poll.wait_timeout(popol::Timeout::from_secs(6)) {
         Ok(()) => {}
         Err(err) if err.kind() == io::ErrorKind::TimedOut => process::exit(1),
         Err(err) => return Err(err),
@@ -21,7 +19,7 @@ fn main() -> io::Result<()> {
 
     // Iterate over source events. Since we only have one source
     // registered, this will only iterate once.
-    for ((), event) in events.iter() {
+    for ((), event) in poll {
         // An error occured with the standard input.
         if event.has_errored() {
             panic!("error on {:?}", io::stdin());
