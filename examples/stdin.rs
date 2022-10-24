@@ -9,7 +9,7 @@ fn main() -> io::Result<()> {
     let mut events = popol::Events::with_capacity(1);
 
     // Register the program's standard input as a source of "read" readiness events.
-    sources.register((), &io::stdin(), popol::interest::READ);
+    sources.register((), &io::stdin(), popol::event::READ);
 
     // Wait on our event sources for at most 6 seconds. If an event source is
     // ready before then, process its events. Otherwise, timeout.

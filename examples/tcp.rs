@@ -10,7 +10,7 @@ fn main() -> io::Result<()> {
     let mut sources = Sources::new();
 
     stream.set_nonblocking(true)?;
-    sources.register(stream.peer_addr()?, &stream, popol::interest::READ);
+    sources.register(stream.peer_addr()?, &stream, popol::event::READ);
 
     loop {
         sources.poll(&mut events, Timeout::Never)?;

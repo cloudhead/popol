@@ -13,7 +13,7 @@
 //!     let mut events = popol::Events::with_capacity(1);
 //!
 //!     // Register the program's standard input as a source of "read" readiness events.
-//!     sources.register((), &io::stdin(), popol::interest::READ);
+//!     sources.register((), &io::stdin(), popol::event::READ);
 //!
 //!     // Wait on our event sources for at most 6 seconds. If an event source is
 //!     // ready before then, process its events. Otherwise, timeout.
@@ -50,31 +50,31 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
-pub use interest::Interest;
+pub use event::Event;
 
 /// Source readiness interest.
-pub mod interest {
+pub mod event {
     /// Events that can be waited for.
-    pub type Interest = libc::c_short;
+    pub type Event = libc::c_short;
 
     /// The associated file is ready to be read.
-    pub const READ: Interest = POLLIN | POLLPRI;
+    pub const READ: Event = POLLIN | POLLPRI;
     /// The associated file is ready to be written.
-    pub const WRITE: Interest = POLLOUT | libc::POLLWRBAND;
+    pub const WRITE: Event = POLLOUT | libc::POLLWRBAND;
     /// The associated file is ready.
-    pub const ALL: Interest = READ | WRITE;
+    pub const ALL: Event = READ | WRITE;
     /// Don't wait for any events.
-    pub const NONE: Interest = 0x0;
+    pub const NONE: Event = 0x0;
 
     // NOTE: POLLERR, POLLNVAL and POLLHUP are ignored as *interests*, and will
     // always be set automatically in the output events.
 
     /// The associated file is available for read operations.
-    const POLLIN: Interest = libc::POLLIN;
+    const POLLIN: Event = libc::POLLIN;
     /// There is urgent data available for read operations.
-    const POLLPRI: Interest = libc::POLLPRI;
+    const POLLPRI: Event = libc::POLLPRI;
     /// The associated file is available for write operations.
-    const POLLOUT: Interest = libc::POLLOUT;
+    const POLLOUT: Event = libc::POLLOUT;
 }
 
 /// Populated by `wait` with source readiness events.
@@ -104,7 +104,7 @@ impl<K: Eq + Clone> Events<K> {
     }
 
     /// Iterate over ready sources and their keys.
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &Event)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &PollFd)> {
         self.sources
             .index
             .iter()
@@ -179,17 +179,18 @@ impl From<Option<Duration>> for Timeout {
     }
 }
 
-/// A reader of events from a source, eg. a `net::TcpStream`.
+/// Poll descriptor accepted by poll syscall, containing list of subscribed
+/// and read events.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
-pub struct Event {
+pub struct PollFd {
     fd: RawFd,
-    events: Interest,
-    revents: Interest,
+    events: Event,
+    revents: Event,
 }
 
-impl Event {
-    fn new(fd: RawFd, events: Interest) -> Self {
+impl PollFd {
+    fn new(fd: RawFd, events: Event) -> Self {
         Self {
             fd,
             events,
@@ -208,23 +209,23 @@ impl Event {
     }
 
     /// Set events to wait for on this source.
-    pub fn set(&mut self, events: Interest) {
+    pub fn set(&mut self, events: Event) {
         self.events |= events;
     }
 
     /// Unset events to wait for on this source.
-    pub fn unset(&mut self, events: Interest) {
+    pub fn unset(&mut self, events: Event) {
         self.events &= !events;
     }
 
     /// The source is writable.
     pub fn is_writable(self) -> bool {
-        self.revents & interest::WRITE != 0
+        self.revents & event::WRITE != 0
     }
 
     /// The source is readable.
     pub fn is_readable(self) -> bool {
-        self.revents & interest::READ != 0
+        self.revents & event::READ != 0
     }
 
     /// The source has be disconnected.
@@ -249,7 +250,7 @@ impl Event {
     }
 }
 
-impl AsRawFd for &Event {
+impl AsRawFd for &PollFd {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
@@ -261,7 +262,7 @@ pub struct Sources<K> {
     /// Tracks the keys assigned to each source.
     index: Vec<K>,
     /// List of sources passed to `poll`.
-    list: Vec<Event>,
+    list: Vec<PollFd>,
 }
 
 impl<K: Eq + Clone> Sources<K> {
@@ -296,8 +297,8 @@ impl<K: Eq + Clone> Sources<K> {
     ///
     /// Care must be taken not to register the same source twice, or use the same key
     /// for two different sources.
-    pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Interest) {
-        self.insert(key, Event::new(fd.as_raw_fd(), events));
+    pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Event) {
+        self.insert(key, PollFd::new(fd.as_raw_fd(), events));
     }
 
     /// Unregister a  source, given its key.
@@ -309,7 +310,7 @@ impl<K: Eq + Clone> Sources<K> {
     }
 
     /// Set the events to poll for on a source identified by its key.
-    pub fn set(&mut self, key: &K, events: Interest) -> bool {
+    pub fn set(&mut self, key: &K, events: Event) -> bool {
         if let Some(ix) = self.find(key) {
             self.list[ix].set(events);
             return true;
@@ -318,7 +319,7 @@ impl<K: Eq + Clone> Sources<K> {
     }
 
     /// Unset event interests on a source.
-    pub fn unset(&mut self, key: &K, events: Interest) -> bool {
+    pub fn unset(&mut self, key: &K, events: Event) -> bool {
         if let Some(ix) = self.find(key) {
             self.list[ix].unset(events);
             return true;
@@ -327,7 +328,7 @@ impl<K: Eq + Clone> Sources<K> {
     }
 
     /// Get a source by key.
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut Event> {
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut PollFd> {
         self.find(key).map(move |ix| &mut self.list[ix])
     }
 
@@ -393,7 +394,7 @@ impl<K: Eq + Clone> Sources<K> {
         self.index.iter().position(|k| k == key)
     }
 
-    fn insert(&mut self, key: K, source: Event) {
+    fn insert(&mut self, key: K, source: PollFd) {
         self.index.push(key);
         self.list.push(source);
     }
@@ -461,7 +462,7 @@ impl Waker {
         reader.set_nonblocking(true)?;
         writer.set_nonblocking(true)?;
 
-        sources.insert(key, Event::new(fd, interest::READ));
+        sources.insert(key, PollFd::new(fd, event::READ));
 
         Ok(Waker { reader, writer })
     }
@@ -574,9 +575,9 @@ mod tests {
             reader.set_nonblocking(true)?;
         }
 
-        sources.register("reader0", &reader0, interest::READ);
-        sources.register("reader1", &reader1, interest::READ);
-        sources.register("reader2", &reader2, interest::READ);
+        sources.register("reader0", &reader0, event::READ);
+        sources.register("reader1", &reader1, event::READ);
+        sources.register("reader2", &reader2, event::READ);
 
         {
             let err = sources
@@ -638,7 +639,7 @@ mod tests {
         let mut events = Events::new();
         let mut sources = Sources::new();
 
-        sources.register((), &io::stdin(), interest::READ);
+        sources.register((), &io::stdin(), event::READ);
 
         let err = sources
             .poll(&mut events, Timeout::from_millis(1))
@@ -665,9 +666,9 @@ mod tests {
             reader.set_nonblocking(true)?;
         }
 
-        sources.register("reader0", &reader0, interest::READ);
-        sources.register("reader1", &reader1, interest::READ);
-        sources.register("reader2", &reader2, interest::READ);
+        sources.register("reader0", &reader0, event::READ);
+        sources.register("reader1", &reader1, event::READ);
+        sources.register("reader2", &reader2, event::READ);
 
         let handle = thread::spawn(move || {
             thread::sleep(Duration::from_millis(8));
@@ -725,9 +726,9 @@ mod tests {
             reader.set_nonblocking(true)?;
         }
 
-        sources.register("reader0", &reader0, interest::READ);
-        sources.register("reader1", &reader1, interest::READ);
-        sources.register("reader2", &reader2, interest::READ);
+        sources.register("reader0", &reader0, event::READ);
+        sources.register("reader1", &reader1, event::READ);
+        sources.register("reader2", &reader2, event::READ);
 
         {
             let err = sources
@@ -792,7 +793,7 @@ mod tests {
 
         // Re-register.
         {
-            sources.register("reader0", &reader0, interest::READ);
+            sources.register("reader0", &reader0, event::READ);
             writer0.write_all(&[0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1))?;
@@ -816,8 +817,8 @@ mod tests {
             reader.set_nonblocking(true)?;
         }
 
-        sources.register("reader0", &reader0, interest::READ);
-        sources.register("reader1", &reader1, interest::NONE);
+        sources.register("reader0", &reader0, event::READ);
+        sources.register("reader1", &reader1, event::NONE);
 
         {
             writer0.write_all(&[0])?;
@@ -826,7 +827,7 @@ mod tests {
             let (key, _) = events.iter().next().unwrap();
             assert_eq!(key, &"reader0");
 
-            sources.unset(key, interest::READ);
+            sources.unset(key, event::READ);
             writer0.write_all(&[0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1)).ok();
@@ -839,7 +840,7 @@ mod tests {
             sources.poll(&mut events, Timeout::from_millis(1)).ok();
             assert!(events.iter().next().is_none());
 
-            sources.set(&"reader1", interest::READ);
+            sources.set(&"reader1", event::READ);
             writer1.write_all(&[0])?;
 
             sources.poll(&mut events, Timeout::from_millis(1))?;

@@ -25,7 +25,7 @@ fn main() -> io::Result<()> {
     listener.set_nonblocking(true)?;
 
     // Register the listener socket, using the corresponding identifier.
-    sources.register(Source::Listener, &listener, popol::interest::READ);
+    sources.register(Source::Listener, &listener, popol::event::READ);
 
     loop {
         sources.poll(&mut events, Timeout::Never)?;
@@ -53,7 +53,7 @@ fn main() -> io::Result<()> {
                     conn.set_nonblocking(true)?;
 
                     // Register the new peer using the `Peer` variant of `Source`.
-                    sources.register(Source::Peer(addr), &conn, popol::interest::ALL);
+                    sources.register(Source::Peer(addr), &conn, popol::event::ALL);
                     // Save the connection to make sure it isn't dropped.
                     peers.insert(addr, conn);
                 },
