@@ -153,6 +153,14 @@ impl<K: Eq + Clone> Events<K> {
         }
     }
 
+    /// Initialize the events list with sources.
+    pub fn with(sources: &Sources<K>) -> Self {
+        Self {
+            count: 0,
+            sources: sources.clone(),
+        }
+    }
+
     /// Iterate over ready sources and their keys.
     pub fn iter(&self) -> impl Iterator<Item = (&K, Event<'_>)> {
         self.sources
@@ -381,12 +389,12 @@ impl<K: Eq + Clone> Sources<K> {
     ///
     /// This is identical to [`Self::poll()`] and [`Self::wait()`], except that you must specify a
     /// timeout with this.
-    pub fn wait_timeout(
+    pub fn events_timeout(
         &mut self,
-        events: &mut Events<K>,
-        timeout: Duration,
-    ) -> Result<(), io::Error> {
-        self.poll(events, timeout.into())
+        timeout: impl Into<Timeout>,
+    ) -> Result<Events<K>, io::Error> {
+        let mut events = Events::new();
+        self.poll(&mut events, timeout.into()).map(|_| events)
     }
 
     /// Wait for readiness events on the given list of sources, or until the call
@@ -394,8 +402,9 @@ impl<K: Eq + Clone> Sources<K> {
     ///
     /// This is identical to [`Self::poll()`] and [`Self::wait_timeout()`] except that you cannot
     /// specify a timeout with this.
-    pub fn wait(&mut self, events: &mut Events<K>) -> Result<(), io::Error> {
-        self.poll(events, Timeout::Never)
+    pub fn events(&mut self) -> Result<Events<K>, io::Error> {
+        let mut events = Events::new();
+        self.poll(&mut events, Timeout::Never).map(|_| events)
     }
 
     fn find(&self, key: &K) -> Option<usize> {
@@ -431,7 +440,7 @@ impl Waker {
     ///
     ///     const WAKER: &'static str = "waker";
     ///
-    ///     let mut events = Events::new();
+    ///     let mut events = Events::<()>::new();
     ///     let mut sources = Sources::new();
     ///
     ///     // Create a waker and keep it alive until the end of the program, so that
@@ -447,7 +456,7 @@ impl Waker {
     ///     });
     ///
     ///     // Wait to be woken up by the other thread. Otherwise, time out.
-    ///     sources.poll(&mut events, Timeout::from_secs(1))?;
+    ///     let events = sources.events_timeout(Timeout::from_secs(1))?;
     ///
     ///     assert!(!events.is_empty(), "There should be at least one event selected");
     ///
@@ -612,7 +621,7 @@ mod tests {
 
             writer.write_all(&[*byte])?;
 
-            sources.poll(&mut events, Timeout::from_millis(1))?;
+            let events = sources.events_timeout(Timeout::from_millis(1))?;
             assert!(!events.is_empty());
 
             let mut events = events.iter();
@@ -630,11 +639,10 @@ mod tests {
 
     #[test]
     fn test_empty() -> io::Result<()> {
-        let mut events: Events<()> = Events::new();
-        let mut sources = Sources::new();
+        let mut sources: Sources<()> = Sources::new();
 
-        sources
-            .poll(&mut events, Timeout::from_millis(1))
+        let events = sources
+            .events_timeout(Timeout::from_millis(1))
             .expect("no error if nothing registered");
 
         assert!(events.is_empty());
@@ -666,7 +674,6 @@ mod tests {
         let (writer1, reader1) = UnixStream::pair()?;
         let (writer2, reader2) = UnixStream::pair()?;
 
-        let mut events = Events::new();
         let mut sources = Sources::new();
         let readers = &[&reader0, &reader1, &reader2];
 
@@ -689,7 +696,7 @@ mod tests {
 
         let mut closed = vec![];
         while closed.len() < readers.len() {
-            sources.poll(&mut events, Timeout::from_millis(64))?;
+            let events = sources.events_timeout(Timeout::from_millis(64))?;
 
             for (key, event) in events.iter() {
                 assert!(event.readable);
