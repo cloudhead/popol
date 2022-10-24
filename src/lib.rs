@@ -27,7 +27,7 @@
 //!     // registered, this will only iterate once.
 //!     for ((), event) in events.iter() {
 //!         // The standard input has data ready to be read.
-//!         if event.readable || event.hangup {
+//!         if event.is_readable() || event.has_hangup() {
 //!             let mut buf = [0; 1024];
 //!
 //!             // Read what we can from standard input and echo it.
@@ -77,56 +77,6 @@ pub mod interest {
     const POLLOUT: Interest = libc::POLLOUT;
 }
 
-/// A source readiness event.
-#[derive(Debug)]
-pub struct Event<'a> {
-    /// The file is writable.
-    pub writable: bool,
-    /// The file is readable.
-    pub readable: bool,
-    /// The file has be disconnected.
-    pub hangup: bool,
-    /// An error has occured on the file.
-    pub errored: bool,
-    /// The file is not valid.
-    pub invalid: bool,
-    /// The underlying source.
-    pub source: &'a Source,
-}
-
-impl<'a> Event<'a> {
-    /// Return the source from the underlying raw file descriptor.
-    ///
-    /// # Safety
-    ///
-    /// Calls `FromRawFd::from_raw_fd`. The returned object will cause
-    /// the file to close when dropped.
-    pub unsafe fn source<T: FromRawFd>(&self) -> T {
-        T::from_raw_fd(self.source.fd)
-    }
-
-    /// Check whether the event is an error. Returns true if the underlying
-    /// source is invalid, or if an error occured on it.
-    pub fn is_err(&self) -> bool {
-        self.errored || self.invalid
-    }
-}
-
-impl<'a> From<&'a Source> for Event<'a> {
-    fn from(source: &'a Source) -> Self {
-        let revents = source.revents;
-
-        Self {
-            readable: revents & interest::READ != 0,
-            writable: revents & interest::WRITE != 0,
-            hangup: revents & libc::POLLHUP != 0,
-            errored: revents & libc::POLLERR != 0,
-            invalid: revents & libc::POLLNVAL != 0,
-            source,
-        }
-    }
-}
-
 /// Populated by `wait` with source readiness events.
 #[derive(Debug)]
 pub struct Events<K> {
@@ -154,13 +104,13 @@ impl<K: Eq + Clone> Events<K> {
     }
 
     /// Iterate over ready sources and their keys.
-    pub fn iter(&self) -> impl Iterator<Item = (&K, Event<'_>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &Source)> {
         self.sources
             .index
             .iter()
             .zip(self.sources.list.iter())
             .filter(|(_, d)| d.revents != 0)
-            .map(|(key, source)| (key, Event::from(source)))
+            .map(|(key, source)| (key, source))
     }
 
     /// Check whether the event list is empty.
@@ -247,6 +197,16 @@ impl Source {
         }
     }
 
+    /// Return the source from the underlying raw file descriptor.
+    ///
+    /// # Safety
+    ///
+    /// Calls `FromRawFd::from_raw_fd`. The returned object will cause
+    /// the file to close when dropped.
+    pub unsafe fn to_raw_fd<T: FromRawFd>(&self) -> T {
+        T::from_raw_fd(self.fd)
+    }
+
     /// Set events to wait for on this source.
     pub fn set(&mut self, events: Interest) {
         self.events |= events;
@@ -255,6 +215,37 @@ impl Source {
     /// Unset events to wait for on this source.
     pub fn unset(&mut self, events: Interest) {
         self.events &= !events;
+    }
+
+    /// The source is writable.
+    pub fn is_writable(self) -> bool {
+        self.revents & interest::WRITE != 0
+    }
+
+    /// The source is readable.
+    pub fn is_readable(self) -> bool {
+        self.revents & interest::READ != 0
+    }
+
+    /// The source has be disconnected.
+    pub fn has_hangup(self) -> bool {
+        self.revents & libc::POLLHUP != 0
+    }
+
+    /// An error has occurred on the source.
+    pub fn has_errored(self) -> bool {
+        self.revents & libc::POLLERR != 0
+    }
+
+    /// The sourc is not valid.
+    pub fn is_invalid(self) -> bool {
+        self.revents & libc::POLLNVAL != 0
+    }
+
+    /// Check whether the event is an error. Returns true if the underlying
+    /// source is invalid, or if an error occurred on it.
+    pub fn is_err(&self) -> bool {
+        self.has_errored() || self.is_invalid()
     }
 }
 
@@ -455,7 +446,7 @@ impl Waker {
     ///     let (key, event) = events.next().unwrap();
     ///
     ///     assert!(key == &WAKER, "The event is triggered by the waker");
-    ///     assert!(event.readable, "The event is readable");
+    ///     assert!(event.is_readable(), "The event is readable");
     ///     assert!(events.next().is_none(), "There was only one event");
     ///
     ///     handle.join().unwrap();
@@ -619,7 +610,7 @@ mod tests {
             let (k, event) = events.next().unwrap();
 
             assert_eq!(&k, &key);
-            assert!(event.readable && !event.writable && !event.errored && !event.hangup);
+            assert!(event.is_readable() && !event.is_writable() && !event.has_errored() && !event.has_hangup());
             assert!(events.next().is_none());
 
             assert_eq!(reader.read(&mut buf[..])?, 1);
@@ -692,11 +683,11 @@ mod tests {
             sources.poll(&mut events, Timeout::from_millis(64))?;
 
             for (key, event) in events.iter() {
-                assert!(event.readable);
-                assert!(!event.writable);
-                assert!(!event.errored);
+                assert!(event.is_readable());
+                assert!(!event.is_writable());
+                assert!(!event.has_errored());
 
-                if event.hangup {
+                if event.has_hangup() {
                     closed.push(key.to_owned());
                     continue;
                 }
@@ -883,8 +874,8 @@ mod tests {
         sources.poll(&mut events, Timeout::from_millis(1))?;
         let (key, event) = events.iter().next().unwrap();
 
-        assert!(event.readable);
-        assert!(!event.writable && !event.hangup && !event.errored);
+        assert!(event.is_readable());
+        assert!(!event.is_writable() && !event.has_hangup() && !event.has_errored());
         assert_eq!(key, &"waker");
 
         waker.wake()?;
@@ -892,7 +883,7 @@ mod tests {
         sources.poll(&mut events, Timeout::from_millis(1))?;
         let (key, event) = events.iter().next().unwrap();
 
-        assert!(event.readable);
+        assert!(event.is_readable());
         assert_eq!(key, &"waker");
 
         // Try to wake multiple times.
@@ -906,7 +897,7 @@ mod tests {
         let (key, event) = events.iter().next().unwrap();
         assert_eq!(key, &"waker");
 
-        Waker::reset(event.source).unwrap();
+        Waker::reset(event).unwrap();
 
         // Try waiting multiple times.
         let result = sources.poll(&mut events, Timeout::from_millis(1));

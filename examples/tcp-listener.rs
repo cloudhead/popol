@@ -32,11 +32,11 @@ fn main() -> io::Result<()> {
 
         for (key, event) in events.iter() {
             match key {
-                Source::Peer(addr) if event.readable => {
+                Source::Peer(addr) if event.is_readable() => {
                     // Peer socket has data to be read.
                     println!("{} is readable", addr);
                 }
-                Source::Peer(addr) if event.writable => {
+                Source::Peer(addr) if event.is_writable() => {
                     // Peer socket is ready to be written.
                     println!("{} is writable", addr);
                 }

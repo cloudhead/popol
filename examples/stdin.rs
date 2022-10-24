@@ -23,11 +23,11 @@ fn main() -> io::Result<()> {
     // registered, this will only iterate once.
     for ((), event) in events.iter() {
         // An error occured with the standard input.
-        if event.errored {
+        if event.has_errored() {
             panic!("error on {:?}", io::stdin());
         }
         // The standard input has data ready to be read.
-        if event.readable || event.hangup {
+        if event.is_readable() || event.has_hangup() {
             let mut buf = [0; 1024];
 
             // Read what we can from standard input and echo it.
