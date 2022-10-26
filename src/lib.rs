@@ -228,7 +228,7 @@ pub struct Poll<K> {
     list: Vec<PollFd>,
 }
 
-impl<K: Eq + Clone> Poll<K> {
+impl<K> Poll<K> {
     /// Creates a new set of sources to poll.
     pub fn new() -> Self {
         Self {
@@ -285,46 +285,6 @@ impl<K: Eq + Clone> Poll<K> {
     pub fn register(&mut self, key: K, fd: &impl AsRawFd, events: Event) {
         self.reset();
         self.insert(key, PollFd::new(fd.as_raw_fd(), events));
-    }
-
-    /// Unregister a source, given its key.
-    ///
-    /// Resets the information about previously collected events.
-    pub fn unregister(&mut self, key: &K) {
-        self.reset();
-        if let Some(ix) = self.find(key) {
-            self.index.swap_remove(ix);
-            self.list.swap_remove(ix);
-        }
-    }
-
-    /// Set the events to poll for on a source identified by its key.
-    ///
-    /// Resets the information about previously collected events.
-    pub fn set(&mut self, key: &K, events: Event) -> bool {
-        self.reset();
-        if let Some(ix) = self.find(key) {
-            self.list[ix].set(events);
-            return true;
-        }
-        false
-    }
-
-    /// Unset event interests on a source.
-    ///
-    /// Resets the information about previously collected events.
-    pub fn unset(&mut self, key: &K, events: Event) -> bool {
-        self.reset();
-        if let Some(ix) = self.find(key) {
-            self.list[ix].unset(events);
-            return true;
-        }
-        false
-    }
-
-    /// Get a source by key.
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut PollFd> {
-        self.find(key).map(move |ix| &mut self.list[ix])
     }
 
     /// Wait for readiness events on the given list of sources. Does not timeout; i.e. may block
@@ -385,13 +345,55 @@ impl<K: Eq + Clone> Poll<K> {
         count
     }
 
-    fn find(&self, key: &K) -> Option<usize> {
-        self.index.iter().position(|k| k == key)
-    }
-
     fn insert(&mut self, key: K, source: PollFd) {
         self.index.push(key);
         self.list.push(source);
+    }
+}
+
+impl<K: PartialEq> Poll<K> {
+    /// Unregister a source, given its key.
+    ///
+    /// Resets the information about previously collected events.
+    pub fn unregister(&mut self, key: &K) {
+        self.reset();
+        if let Some(ix) = self.find(key) {
+            self.index.swap_remove(ix);
+            self.list.swap_remove(ix);
+        }
+    }
+
+    /// Set the events to poll for on a source identified by its key.
+    ///
+    /// Resets the information about previously collected events.
+    pub fn set(&mut self, key: &K, events: Event) -> bool {
+        self.reset();
+        if let Some(ix) = self.find(key) {
+            self.list[ix].set(events);
+            return true;
+        }
+        false
+    }
+
+    /// Unset event interests on a source.
+    ///
+    /// Resets the information about previously collected events.
+    pub fn unset(&mut self, key: &K, events: Event) -> bool {
+        self.reset();
+        if let Some(ix) = self.find(key) {
+            self.list[ix].unset(events);
+            return true;
+        }
+        false
+    }
+
+    /// Get a source by key.
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut PollFd> {
+        self.find(key).map(move |ix| &mut self.list[ix])
+    }
+
+    fn find(&self, key: &K) -> Option<usize> {
+        self.index.iter().position(|k| k == key)
     }
 }
 
