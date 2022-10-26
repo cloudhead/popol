@@ -388,6 +388,11 @@ impl<K: PartialEq> Poll<K> {
     }
 
     /// Get a source by key.
+    pub fn get(&self, key: &K) -> Option<&PollFd> {
+        self.find(key).map(move |ix| &self.list[ix])
+    }
+
+    /// Get a mutable reference for a source by key.
     pub fn get_mut(&mut self, key: &K) -> Option<&mut PollFd> {
         self.find(key).map(move |ix| &mut self.list[ix])
     }
