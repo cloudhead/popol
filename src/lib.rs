@@ -232,7 +232,7 @@ pub struct Sources<K> {
     list: Vec<Source>,
 }
 
-impl<K: Eq + Clone> Sources<K> {
+impl<K> Sources<K> {
     /// Creates a new set of sources to poll.
     pub fn new() -> Self {
         Self {
@@ -259,7 +259,9 @@ impl<K: Eq + Clone> Sources<K> {
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
+}
 
+impl<K: Clone + PartialEq> Sources<K> {
     /// Register a new source, with the given key, and wait for the specified events.
     ///
     /// Care must be taken not to register the same source twice, or use the same key
@@ -295,6 +297,11 @@ impl<K: Eq + Clone> Sources<K> {
     }
 
     /// Get a source by key.
+    pub fn get(&mut self, key: &K) -> Option<&Source> {
+        self.find(key).map(move |ix| &self.list[ix])
+    }
+
+    /// Get a source by key, mutably.
     pub fn get_mut(&mut self, key: &K) -> Option<&mut Source> {
         self.find(key).map(move |ix| &mut self.list[ix])
     }
@@ -330,7 +337,7 @@ impl<K: Eq + Clone> Sources<K> {
             self.index
                 .iter()
                 .zip(self.list.iter())
-                .filter(|(_, d)| d.revents != 0)
+                .filter(|(_, s)| s.revents != 0)
                 .map(|(key, source)| Event {
                     key: key.clone(),
                     source: *source,
