@@ -2,11 +2,11 @@ use std::io;
 use std::io::prelude::*;
 use std::net;
 
-use popol::{Events, Sources, Timeout};
+use popol::{Sources, Timeout};
 
 fn main() -> io::Result<()> {
     let mut stream = net::TcpStream::connect("localhost:8888").unwrap();
-    let mut events = Events::new();
+    let mut events = Vec::new();
     let mut sources = Sources::new();
 
     stream.set_nonblocking(true)?;
@@ -15,14 +15,14 @@ fn main() -> io::Result<()> {
     loop {
         sources.poll(&mut events, Timeout::Never)?;
 
-        for (addr, event) in events.iter() {
+        for event in events.drain(..) {
             if event.is_readable() {
                 let mut buf = [0; 32];
 
                 match stream.read(&mut buf[..]) {
                     Ok(n) if n > 0 => {
                         let msg = std::str::from_utf8(&buf[..n]).unwrap();
-                        println!("{}: {}", addr, msg.trim());
+                        println!("{}: {}", event.key, msg.trim());
                     }
                     Ok(_) => {
                         // Connection closed.

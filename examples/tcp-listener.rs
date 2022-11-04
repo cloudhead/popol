@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net;
 
-use popol::{Events, Sources, Timeout};
+use popol::{Sources, Timeout};
 
 /// The identifier we'll use with `popol` to figure out the source
 /// of an event.
@@ -17,7 +17,7 @@ enum Source {
 fn main() -> io::Result<()> {
     let listener = net::TcpListener::bind("0.0.0.0:8888")?;
     let mut sources = Sources::new();
-    let mut events = Events::new();
+    let mut events = Vec::new();
     let mut peers = HashMap::new();
 
     // It's important to set the socket in non-blocking mode. This allows
@@ -30,8 +30,8 @@ fn main() -> io::Result<()> {
     loop {
         sources.poll(&mut events, Timeout::Never)?;
 
-        for (key, event) in events.iter() {
-            match key {
+        for event in events.iter() {
+            match event.key {
                 Source::Peer(addr) if event.is_readable() => {
                     // Peer socket has data to be read.
                     println!("{} is readable", addr);
