@@ -317,9 +317,9 @@ impl<K: Clone + PartialEq> Sources<K> {
     pub fn poll(
         &mut self,
         events: &mut Vec<Event<K>>,
-        timeout: Timeout,
+        timeout: impl Into<Timeout>,
     ) -> Result<usize, io::Error> {
-        let timeout = match timeout {
+        let timeout = match timeout.into() {
             Timeout::After(duration) => duration.as_millis() as libc::c_int,
             Timeout::Never => -1,
         };
@@ -367,7 +367,7 @@ impl<K: Clone + PartialEq> Sources<K> {
         events: &mut Vec<Event<K>>,
         timeout: Duration,
     ) -> Result<usize, io::Error> {
-        self.poll(events, timeout.into())
+        self.poll(events, timeout)
     }
 
     /// Wait for readiness events on the given list of sources, or until the call
