@@ -914,4 +914,57 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_waker_threaded() {
+        let mut events = Vec::new();
+        let mut sources = Sources::new();
+        let waker = Waker::new(&mut sources, "waker").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let iterations = 100_000;
+        let handle = std::thread::spawn(move || {
+            for _ in 0..iterations {
+                tx.send(()).unwrap();
+                waker.wake().unwrap();
+            }
+        });
+
+        let mut wakes = 0;
+        let mut received = 0;
+
+        while !handle.is_finished() {
+            events.clear();
+
+            let count = sources.poll(&mut events, Timeout::Never).unwrap();
+            if count > 0 {
+                let event = events.pop().unwrap();
+                assert_eq!(event.key, "waker");
+                assert!(events.is_empty());
+
+                // There's always a message on the channel if we got woken up.
+                rx.recv().unwrap();
+                received += 1;
+
+                // We may get additional messages on the channel, if the sending is
+                // faster than the waking.
+                while rx.try_recv().is_ok() {
+                    received += 1;
+                }
+
+                if received == iterations {
+                    // Error: "bad file descriptor", as the waker handle gets
+                    // dropped by the other thread.
+                    Waker::reset(event.source).unwrap_err();
+                    break;
+                }
+
+                Waker::reset(event.source).unwrap();
+                wakes += 1;
+            }
+        }
+        handle.join().unwrap();
+
+        assert_eq!(received, iterations);
+        assert!(wakes <= received);
+    }
 }
