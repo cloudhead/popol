@@ -33,7 +33,7 @@
 //!             // Read what we can from standard input and echo it.
 //!             match io::stdin().read(&mut buf[..]) {
 //!                 Ok(n) => io::stdout().write_all(&buf[..n])?,
-//!                 Err(err) => panic!(err),
+//!                 Err(err) => panic!("{}", err),
 //!             }
 //!         }
 //!     }
