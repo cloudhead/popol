@@ -182,6 +182,11 @@ impl Source {
         self.events &= !events;
     }
 
+    /// Returns raw representation of events which fired during poll.
+    pub fn fired_events(&self) -> PollEvents {
+        self.revents
+    }
+
     /// The source is writable.
     pub fn is_writable(self) -> bool {
         self.revents & interest::WRITE != 0
