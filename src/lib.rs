@@ -53,10 +53,13 @@ use std::time::Duration;
 
 pub use interest::Interest;
 
+/// Raw input or output events.
+pub type Events = libc::c_short;
+
 /// Source readiness interest.
 pub mod interest {
     /// Events that can be waited for.
-    pub type Interest = libc::c_short;
+    pub type Interest = super::Events;
 
     /// The associated file is ready to be read.
     pub const READ: Interest = POLLIN | POLLPRI;
@@ -180,6 +183,11 @@ impl Source {
     /// Unset events to wait for on this source.
     pub fn unset(&mut self, events: Interest) {
         self.events &= !events;
+    }
+
+    /// Returns raw representation of events which fired during poll.
+    pub fn raw_events(&self) -> Events {
+        self.revents
     }
 
     /// The source is writable.
