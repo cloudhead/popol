@@ -332,36 +332,45 @@ impl<K: Clone + PartialEq> Sources<K> {
             Timeout::Never => -1,
         };
 
-        // SAFETY: required for FFI; shouldn't break rust guarantees.
-        let result = unsafe {
-            libc::poll(
-                self.list.as_mut_ptr() as *mut libc::pollfd,
-                self.list.len() as libc::nfds_t,
-                timeout,
-            )
-        };
+        loop {
+            // SAFETY: required for FFI; shouldn't break rust guarantees.
+            let result = unsafe {
+                libc::poll(
+                    self.list.as_mut_ptr() as *mut libc::pollfd,
+                    self.list.len() as libc::nfds_t,
+                    timeout,
+                )
+            };
 
-        events.extend(
-            self.index
-                .iter()
-                .zip(self.list.iter())
-                .filter(|(_, s)| s.revents != 0)
-                .map(|(key, source)| Event {
-                    key: key.clone(),
-                    source: *source,
-                }),
-        );
+            events.extend(
+                self.index
+                    .iter()
+                    .zip(self.list.iter())
+                    .filter(|(_, s)| s.revents != 0)
+                    .map(|(key, source)| Event {
+                        key: key.clone(),
+                        source: *source,
+                    }),
+            );
 
-        if result == 0 {
-            if self.is_empty() {
-                Ok(0)
+            if result == 0 {
+                if self.is_empty() {
+                    return Ok(0);
+                } else {
+                    return Err(io::ErrorKind::TimedOut.into());
+                }
+            } else if result > 0 {
+                return Ok(result as usize);
             } else {
-                Err(io::ErrorKind::TimedOut.into())
+                let err = io::Error::last_os_error();
+                // Poll can fail if "The allocation of internal data structures failed". But
+                // a subsequent request may succeed.
+                if err.raw_os_error() == Some(libc::EAGAIN) {
+                    continue;
+                } else {
+                    return Err(err);
+                }
             }
-        } else if result > 0 {
-            Ok(result as usize)
-        } else {
-            Err(io::Error::last_os_error())
         }
     }
 
