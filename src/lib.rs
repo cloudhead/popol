@@ -316,7 +316,7 @@ impl<K: Clone + PartialEq> Sources<K> {
     /// calling this function, if necessary.
     pub fn poll(
         &mut self,
-        events: &mut Vec<Event<K>>,
+        events: &mut impl Extend<Event<K>>,
         timeout: impl Into<Timeout>,
     ) -> Result<usize, io::Error> {
         let timeout = match timeout.into() {
@@ -364,7 +364,7 @@ impl<K: Clone + PartialEq> Sources<K> {
     /// timeout with this.
     pub fn wait_timeout(
         &mut self,
-        events: &mut Vec<Event<K>>,
+        events: &mut impl Extend<Event<K>>,
         timeout: Duration,
     ) -> Result<usize, io::Error> {
         self.poll(events, timeout)
@@ -375,7 +375,7 @@ impl<K: Clone + PartialEq> Sources<K> {
     ///
     /// This is identical to [`Self::poll()`] and [`Self::wait_timeout()`] except that you cannot
     /// specify a timeout with this.
-    pub fn wait(&mut self, events: &mut Vec<Event<K>>) -> Result<usize, io::Error> {
+    pub fn wait(&mut self, events: &mut impl Extend<Event<K>>) -> Result<usize, io::Error> {
         self.poll(events, Timeout::Never)
     }
 
