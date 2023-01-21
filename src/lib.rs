@@ -634,7 +634,7 @@ mod tests {
         let mut events = Vec::new();
         let mut sources = Sources::new();
 
-        sources.register((), &io::stdin(), interest::READ);
+        sources.register((), &io::stdout(), interest::READ);
 
         let err = sources
             .poll(&mut events, Timeout::from_millis(1))
@@ -958,7 +958,7 @@ mod tests {
                     break;
                 }
 
-                Waker::reset(event.source).unwrap();
+                Waker::reset(event.source).ok(); // We might get the "bad file descriptor" error here.
                 wakes += 1;
             }
         }
