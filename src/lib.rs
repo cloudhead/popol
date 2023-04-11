@@ -363,12 +363,16 @@ impl<K: Clone + PartialEq> Sources<K> {
                 return Ok(result as usize);
             } else {
                 let err = io::Error::last_os_error();
-                // Poll can fail if "The allocation of internal data structures failed". But
-                // a subsequent request may succeed.
-                if err.raw_os_error() == Some(libc::EAGAIN) {
-                    continue;
-                } else {
-                    return Err(err);
+                match err.raw_os_error() {
+                    // Poll can fail if "The allocation of internal data structures failed". But
+                    // a subsequent request may succeed.
+                    Some(libc::EAGAIN) => continue,
+                    // Poll can also fail if it received an interrupt. It's a good idea to retry
+                    // in that case.
+                    Some(libc::EINTR) => continue,
+                    _ => {
+                        return Err(err);
+                    }
                 }
             }
         }
