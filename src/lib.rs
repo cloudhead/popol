@@ -157,9 +157,9 @@ pub struct Source {
 }
 
 impl Source {
-    fn new(fd: RawFd, events: Interest) -> Self {
+    fn new(fd: impl AsRawFd, events: Interest) -> Self {
         Self {
-            fd,
+            fd: fd.as_raw_fd(),
             events,
             revents: 0,
         }
@@ -269,6 +269,16 @@ impl<K> Sources<K> {
     }
 }
 
+impl<S: AsRawFd, K: PartialEq + Eq + Clone> FromIterator<(K, S, Interest)> for Sources<K> {
+    fn from_iter<T: IntoIterator<Item = (K, S, Interest)>>(iter: T) -> Self {
+        let mut sources = Sources::new();
+        for (key, source, interest) in iter {
+            sources.register(key, &source, interest);
+        }
+        sources
+    }
+}
+
 impl<K: Clone + PartialEq> Sources<K> {
     /// Register a new source, with the given key, and wait for the specified events.
     ///
@@ -331,6 +341,10 @@ impl<K: Clone + PartialEq> Sources<K> {
             Timeout::After(duration) => duration.as_millis() as libc::c_int,
             Timeout::Never => -1,
         };
+        // Exit if there's nothing to poll.
+        if self.list.is_empty() {
+            return Ok(0);
+        }
 
         loop {
             // SAFETY: required for FFI; shouldn't break rust guarantees.
@@ -416,12 +430,18 @@ pub struct Waker {
     writer: UnixStream,
 }
 
+impl AsRawFd for &Waker {
+    fn as_raw_fd(&self) -> RawFd {
+        self.reader.as_raw_fd()
+    }
+}
+
 impl Waker {
-    /// Create a new `Waker`.
+    /// Create a new `Waker` and register it.
     ///
     /// # Examples
     ///
-    /// Wake a `wait` call from another thread.
+    /// Wake a `poll` call from another thread.
     ///
     /// ```
     /// fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -438,7 +458,7 @@ impl Waker {
     ///
     ///     // Create a waker and keep it alive until the end of the program, so that
     ///     // the reading end doesn't get closed.
-    ///     let waker = Arc::new(Waker::new(&mut sources, WAKER)?);
+    ///     let waker = Arc::new(Waker::register(&mut sources, WAKER)?);
     ///     let _waker = waker.clone();
     ///
     ///     let handle = thread::spawn(move || {
@@ -465,14 +485,19 @@ impl Waker {
     ///     Ok(())
     /// }
     /// ```
-    pub fn new<K: Eq + Clone>(sources: &mut Sources<K>, key: K) -> io::Result<Waker> {
+    pub fn register<K: Eq + Clone>(sources: &mut Sources<K>, key: K) -> io::Result<Waker> {
+        let waker = Waker::new()?;
+        sources.insert(key, Source::new(&waker, interest::READ));
+
+        Ok(waker)
+    }
+
+    /// Create a new waker.
+    pub fn new() -> io::Result<Waker> {
         let (writer, reader) = UnixStream::pair()?;
-        let fd = reader.as_raw_fd();
 
         reader.set_nonblocking(true)?;
         writer.set_nonblocking(true)?;
-
-        sources.insert(key, Source::new(fd, interest::READ));
 
         Ok(Waker { reader, writer })
     }
@@ -876,7 +901,7 @@ mod tests {
     fn test_waker() -> io::Result<()> {
         let mut events = Vec::new();
         let mut sources = Sources::new();
-        let mut waker = Waker::new(&mut sources, "waker")?;
+        let mut waker = Waker::register(&mut sources, "waker")?;
         let buf = [0; 4096];
 
         sources.poll(&mut events, Timeout::from_millis(1)).ok();
@@ -940,7 +965,7 @@ mod tests {
     fn test_waker_threaded() {
         let mut events = Vec::new();
         let mut sources = Sources::new();
-        let waker = Waker::new(&mut sources, "waker").unwrap();
+        let waker = Waker::register(&mut sources, "waker").unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let iterations = 100_000;
         let handle = std::thread::spawn(move || {
