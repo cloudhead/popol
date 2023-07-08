@@ -677,10 +677,12 @@ mod tests {
 
     #[test]
     fn test_timeout() -> io::Result<()> {
+        let (_writer, reader) = UnixStream::pair()?;
+
         let mut events = Vec::new();
         let mut sources = Sources::new();
 
-        sources.register((), &io::stdout(), interest::READ);
+        sources.register((), &reader, interest::READ);
 
         let err = sources
             .poll(&mut events, Timeout::from_millis(1))
