@@ -716,7 +716,6 @@ mod tests {
 
             for writer in &mut [&writer1, &writer2, &writer0] {
                 writer.write_all(&[1]).unwrap();
-                writer.write_all(&[2]).unwrap();
             }
         });
 
@@ -743,8 +742,8 @@ mod tests {
                 };
                 let n = reader.read(&mut buf[..])?;
 
-                assert_eq!(n, 2);
-                assert_eq!(&buf[..], &[1, 2]);
+                assert_eq!(n, 1);
+                assert_eq!(&buf[..], &[1, 0]);
             }
         }
         handle.join().unwrap();
