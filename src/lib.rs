@@ -590,6 +590,7 @@ pub fn set_nonblocking(fd: &dyn AsRawFd, nonblocking: bool) -> io::Result<i32> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unnecessary_first_then_check)]
 mod tests {
     use super::*;
 
@@ -946,7 +947,7 @@ mod tests {
         let event @ Event { key, .. } = events.first().unwrap();
         assert_eq!(key, &"waker");
 
-        Waker::reset(&event.source).unwrap();
+        Waker::reset(event.source).unwrap();
 
         // Try waiting multiple times.
         let result = sources.poll(&mut events, Timeout::from_millis(1));
