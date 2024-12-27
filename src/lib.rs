@@ -436,6 +436,12 @@ impl AsRawFd for &Waker {
     }
 }
 
+impl AsRawFd for Waker {
+    fn as_raw_fd(&self) -> RawFd {
+        self.reader.as_raw_fd()
+    }
+}
+
 impl Waker {
     /// Create a new `Waker` and register it.
     ///
